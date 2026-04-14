@@ -1,6 +1,6 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { Send, Sparkles, ChevronDown, Plus, MessageSquare, PanelLeftClose, PanelLeft, User, Loader2, Trash2, Check, ImagePlus, X, Clock, Search, Image, Archive, ChevronRight, Globe, BookOpen, Headphones, Info, HelpCircle, Mic, AudioLines, FileUp, Paintbrush, Lightbulb, Upload, MoreVertical, Folder, ArrowLeft, File, FileText, Shield, CheckCircle2, SquarePen, Mail, Download } from "lucide-react";
+import { Send, Sparkles, ChevronDown, Plus, MessageSquare, PanelLeftClose, PanelLeft, User, Loader2, Trash2, Check, ImagePlus, X, Clock, Search, Image, Archive, ChevronRight, Globe, BookOpen, Headphones, Info, HelpCircle, Mic, AudioLines, FileUp, Paintbrush, Lightbulb, Upload, MoreVertical, Folder, ArrowLeft, File, FileText, Shield, CheckCircle2, SquarePen, Mail, Download, Copy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   useGetOrchAgents,
@@ -455,6 +455,11 @@ export default function AgentOrchestrator() {
   const [selectedGalleryImage, setSelectedGalleryImage] = useState<{ src: string; name: string } | null>(null);
   // Addon: Canvas mode
   const [isCanvasEnabled, setIsCanvasEnabled] = useState(false);
+  // Addon: Image generation mode (sticky chip — stays until user clicks ×)
+  const [imageMode, setImageMode] = useState(false);
+  // Addon: Per-message export menu (msg.id) and copy feedback
+  const [exportMenuOpenId, setExportMenuOpenId] = useState<string | null>(null);
+  const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [canvasEditingId, setCanvasEditingId] = useState<string | null>(null);
   const [canvasEditTexts, setCanvasEditTexts] = useState<Record<string, string>>({});
   // Addon: Autocomplete suggestions
@@ -820,6 +825,10 @@ export default function AgentOrchestrator() {
       if (!(e.target as Element)?.closest?.("[data-chat-menu]")) {
         setChatMenuOpenId(null);
       }
+      // Close per-message export menu when clicking outside
+      if (!(e.target as Element)?.closest?.("[data-export-menu]")) {
+        setExportMenuOpenId(null);
+      }
       // Close suggestions when clicking outside input area
       if (!(e.target as Element)?.closest?.("textarea")) {
         setShowSuggestions(false);
@@ -1057,6 +1066,82 @@ export default function AgentOrchestrator() {
     synth.speak(utterance);
   }, []);
 
+  /* ------------------ EXPORT MESSAGE (DOCX / PDF) ------------------ */
+
+  const renderMarkdownToHtml = useCallback((md: string): string => {
+    // Lightweight markdown → HTML (headings, bold, italic, code, links, lists, line breaks)
+    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    let html = esc(md);
+    html = html.replace(/```([\s\S]*?)```/g, (_, code) => `<pre><code>${code}</code></pre>`);
+    html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+    html = html.replace(/^###### (.*)$/gm, "<h6>$1</h6>");
+    html = html.replace(/^##### (.*)$/gm, "<h5>$1</h5>");
+    html = html.replace(/^#### (.*)$/gm, "<h4>$1</h4>");
+    html = html.replace(/^### (.*)$/gm, "<h3>$1</h3>");
+    html = html.replace(/^## (.*)$/gm, "<h2>$1</h2>");
+    html = html.replace(/^# (.*)$/gm, "<h1>$1</h1>");
+    html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+    html = html.replace(/^\s*[-*+] (.*)$/gm, "<li>$1</li>");
+    html = html.replace(/(<li>[\s\S]*?<\/li>)/g, "<ul>$1</ul>");
+    html = html.replace(/\n{2,}/g, "</p><p>");
+    html = html.replace(/\n/g, "<br/>");
+    return `<p>${html}</p>`;
+  }, []);
+
+  const handleExportDocx = useCallback((text: string) => {
+    if (!text) return;
+    const body = renderMarkdownToHtml(text);
+    const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>Export</title><style>body{font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.5;}h1,h2,h3,h4{color:#1a1a1a;}pre{background:#f5f5f5;padding:8px;border-radius:4px;font-family:Consolas,monospace;white-space:pre-wrap;}code{background:#f5f5f5;padding:2px 4px;border-radius:3px;font-family:Consolas,monospace;}</style></head><body>${body}</body></html>`;
+    const blob = new Blob(["\ufeff", html], { type: "application/msword" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `response-${Date.now()}.doc`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [renderMarkdownToHtml]);
+
+  const handleExportPdf = useCallback((text: string) => {
+    if (!text) return;
+    const body = renderMarkdownToHtml(text);
+    const printWindow = window.open("", "_blank", "width=800,height=600");
+    if (!printWindow) return;
+    printWindow.document.write(`<html><head><title>Export</title><style>body{font-family:Arial,sans-serif;font-size:12pt;line-height:1.6;max-width:800px;margin:40px auto;padding:0 20px;color:#1a1a1a;}h1,h2,h3,h4{color:#000;}pre{background:#f5f5f5;padding:10px;border-radius:4px;font-family:Consolas,monospace;white-space:pre-wrap;overflow-x:auto;}code{background:#f5f5f5;padding:2px 4px;border-radius:3px;font-family:Consolas,monospace;}a{color:#2563eb;}@media print{body{margin:0;}}</style></head><body>${body}<script>window.onload=function(){window.print();setTimeout(function(){window.close();},500);}</script></body></html>`);
+    printWindow.document.close();
+  }, [renderMarkdownToHtml]);
+
+  const handleExportText = useCallback((text: string) => {
+    if (!text) return;
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `response-${Date.now()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const handleCopyMessage = useCallback(async (text: string, msgId: string) => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Fallback for non-secure contexts
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); } catch {}
+      document.body.removeChild(ta);
+    }
+    setCopiedMsgId(msgId);
+    setTimeout(() => setCopiedMsgId((id) => (id === msgId ? null : id)), 1500);
+  }, []);
+
   /* ------------------ SEND MESSAGE ------------------ */
 
   const handleSend = useCallback(async () => {
@@ -1239,6 +1324,11 @@ export default function AgentOrchestrator() {
       requestBody.enable_reasoning = true;
     }
 
+    // Image mode: explicit flag — backend skips intent classification and routes to image generation
+    if (imageMode) {
+      requestBody.image_mode = true;
+    }
+
     if (filePaths.length > 0) {
       requestBody.files = filePaths;
     }
@@ -1414,7 +1504,7 @@ export default function AgentOrchestrator() {
       setStreamingAgentName("");
       setStreamingMsgId(null);
     }
-  }, [canInteract, input, isSending, agents, selectedAgent, selectedModelId, noAgentMode, selectedAiModel, currentSessionId, effectiveSessionId, refetchSessions, refetchMessages]);
+  }, [canInteract, input, isSending, agents, selectedAgent, selectedModelId, noAgentMode, selectedAiModel, currentSessionId, effectiveSessionId, refetchSessions, refetchMessages, imageMode, cotReasoning]);
 
   /* ------------------ SESSION MANAGEMENT ------------------ */
 
@@ -1861,11 +1951,20 @@ export default function AgentOrchestrator() {
           style={{ bottom: plusMenuPos.bottom, left: plusMenuPos.left }}
         >
           <button
-            onClick={() => setShowPlusMenu(false)}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-foreground hover:bg-accent"
+            onClick={() => {
+              setShowPlusMenu(false);
+              setImageMode(true);
+              setIsCanvasEnabled(false);
+            }}
+            className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm text-foreground hover:bg-accent"
           >
-            <Paintbrush size={16} className="text-muted-foreground" />
-            <span>{t("Create image")}</span>
+            <div className="flex items-center gap-3">
+              <Paintbrush size={16} className={imageMode ? "text-red-500" : "text-muted-foreground"} />
+              <span>{t("Create image")}</span>
+            </div>
+            {imageMode && (
+              <span className="text-xs font-medium text-red-500">ON</span>
+            )}
           </button>
           <button
             onClick={() => {
@@ -2322,16 +2421,58 @@ export default function AgentOrchestrator() {
                           chatMessage={msg.content}
                           editedFlag={null}
                         />
-                        {/* Text-to-Speech button — hide for image-only responses */}
-                        {msg.content && !isSending && !(/^\s*!\[.*\]\(.*\)\s*$/.test(msg.content.trim())) && (
-                          <button
-                            onClick={() => handleSpeak(msg.content)}
-                            className="mt-1.5 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-                            title={t("Read aloud")}
-                          >
-                            <AudioLines size={13} />
-                            <span>{t("Read aloud")}</span>
-                          </button>
+                        {/* Action buttons row — hide when message contains a generated image */}
+                        {msg.content && !isSending && !/!\[.*?\]\(.*?\)/.test(msg.content) && (
+                          <div className="mt-1.5 flex items-center gap-1">
+                            <button
+                              onClick={() => handleCopyMessage(msg.content, msg.id)}
+                              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                              title={copiedMsgId === msg.id ? t("Copied!") : t("Copy")}
+                            >
+                              {copiedMsgId === msg.id ? <Check size={13} className="text-green-600" /> : <Copy size={13} />}
+                            </button>
+                            <button
+                              onClick={() => handleSpeak(msg.content)}
+                              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                              title={t("Read aloud")}
+                            >
+                              <AudioLines size={13} />
+                            </button>
+                            <div className="relative" data-export-menu>
+                              <button
+                                onClick={() => setExportMenuOpenId(exportMenuOpenId === msg.id ? null : msg.id)}
+                                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                                title={t("Export")}
+                              >
+                                <Download size={13} />
+                              </button>
+                              {exportMenuOpenId === msg.id && (
+                                <div className="absolute left-0 top-full z-50 mt-1 min-w-[140px] rounded-lg border border-border bg-popover p-1 shadow-lg">
+                                  <button
+                                    onClick={() => { handleExportDocx(msg.content); setExportMenuOpenId(null); }}
+                                    className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-foreground hover:bg-accent"
+                                  >
+                                    <FileText size={14} className="text-blue-600" />
+                                    <span>{t("Word")}</span>
+                                  </button>
+                                  <button
+                                    onClick={() => { handleExportPdf(msg.content); setExportMenuOpenId(null); }}
+                                    className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-foreground hover:bg-accent"
+                                  >
+                                    <FileText size={14} className="text-red-600" />
+                                    <span>{t("PDF")}</span>
+                                  </button>
+                                  <button
+                                    onClick={() => { handleExportText(msg.content); setExportMenuOpenId(null); }}
+                                    className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-foreground hover:bg-accent"
+                                  >
+                                    <File size={14} className="text-muted-foreground" />
+                                    <span>{t("Text")}</span>
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
                         )}
                         {/* HITL action buttons */}
                         {msg.hitl && (
@@ -2571,6 +2712,21 @@ export default function AgentOrchestrator() {
                     <span className="text-xs font-semibold text-red-500">{t("Canvas")}</span>
                     <button
                       onClick={() => setIsCanvasEnabled(false)}
+                      className="ml-0.5 rounded-full p-0.5 text-red-400 hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900/50"
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                </div>
+              )}
+              {/* Image mode indicator pill */}
+              {imageMode && (
+                <div className="flex items-center px-4 pb-1">
+                  <div className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1 dark:border-red-800 dark:bg-red-950/30">
+                    <Image size={12} className="text-red-500" />
+                    <span className="text-xs font-semibold text-red-500">{t("Image")}</span>
+                    <button
+                      onClick={() => setImageMode(false)}
                       className="ml-0.5 rounded-full p-0.5 text-red-400 hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900/50"
                     >
                       <X size={10} />
