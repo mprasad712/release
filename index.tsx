@@ -45,6 +45,12 @@ import defaultLlmLogo from "@/assets/default_llm_logo.png";
 import notebookLMLogo from "@/assets/notebooklm_logo.svg";
 import translatorLogo from "@/assets/translator_logo.png";
 import imageLibraryLogo from "@/assets/image_library_logo.svg";
+import miNewChatIcon from "@/assets/mibuddy_new_chat.svg";
+import miSearchIcon from "@/assets/mibuddy_search.svg";
+import miChatHistoryIcon from "@/assets/mibuddy_chat_history.svg";
+import miArchiveIcon from "@/assets/mibuddy_archive.svg";
+import miInformationIcon from "@/assets/mibuddy_information.svg";
+import miHelpIcon from "@/assets/mibuddy_help.svg";
 
 /* ------------------ TYPES ------------------ */
 
@@ -1635,7 +1641,7 @@ export default function AgentOrchestrator() {
             }}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
           >
-            <SquarePen size={16} className="shrink-0 text-muted-foreground" />
+            <img src={miNewChatIcon} alt="" className="h-4 w-4 shrink-0 text-muted-foreground" />
             <span>{t("New chat")}</span>
           </button>
 
@@ -1647,7 +1653,7 @@ export default function AgentOrchestrator() {
             }}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
           >
-            <Search size={16} className="shrink-0 text-muted-foreground" />
+            <img src={miSearchIcon} alt="" className="h-4 w-4 shrink-0 text-muted-foreground" />
             <span>{t("Search chats")}</span>
           </button>
 
@@ -1733,7 +1739,7 @@ export default function AgentOrchestrator() {
             }}
             className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent ${showImageGallery ? "bg-accent" : ""}`}
           >
-            <Image size={16} className="shrink-0 text-muted-foreground" />
+            <img src={imageLibraryLogo} alt="" className="h-4 w-4 shrink-0" />
             <span>{t("Image")}</span>
           </button>
 
@@ -1742,7 +1748,7 @@ export default function AgentOrchestrator() {
             onClick={() => setShowChatHistoryExpand(!showChatHistoryExpand)}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
           >
-            <Globe size={16} className="shrink-0 text-muted-foreground" />
+            <img src={miChatHistoryIcon} alt="" className="h-4 w-4 shrink-0 text-muted-foreground" />
             <span className="flex-1 text-left">{t("Chat history")}</span>
             <ChevronRight size={14} className={`text-muted-foreground transition-transform ${showChatHistoryExpand ? "rotate-90" : ""}`} />
           </button>
@@ -1797,7 +1803,7 @@ export default function AgentOrchestrator() {
             onClick={() => setShowArchiveChatExpand(!showArchiveChatExpand)}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
           >
-            <Archive size={16} className="shrink-0 text-muted-foreground" />
+            <img src={miArchiveIcon} alt="" className="h-4 w-4 shrink-0 text-muted-foreground" />
             <span className="flex-1 text-left">{t("Archive Chat")}</span>
             <ChevronRight size={14} className={`text-muted-foreground transition-transform ${showArchiveChatExpand ? "rotate-90" : ""}`} />
           </button>
@@ -1893,7 +1899,7 @@ export default function AgentOrchestrator() {
             }
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
           >
-            <Info size={16} className="shrink-0 text-muted-foreground" />
+            <img src={miInformationIcon} alt="" className="h-4 w-4 shrink-0 text-muted-foreground" />
             <span>{t("Information")}</span>
           </button>
           <button
@@ -1905,7 +1911,7 @@ export default function AgentOrchestrator() {
             }}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
           >
-            <HelpCircle size={16} className="shrink-0 text-muted-foreground" />
+            <img src={miHelpIcon} alt="" className="h-4 w-4 shrink-0 text-muted-foreground" />
             <span>{t("Help")}</span>
           </button>
         </div>
