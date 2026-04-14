@@ -52,6 +52,25 @@ import miArchiveIcon from "@/assets/mibuddy_archive.svg";
 import miInformationIcon from "@/assets/mibuddy_information.svg";
 import miHelpIcon from "@/assets/mibuddy_help.svg";
 
+// Sidebar mono icon: renders an SVG via CSS mask so it inherits the parent's text color.
+function SidebarMaskIcon({ src, className = "h-4 w-4 shrink-0 bg-muted-foreground" }: { src: string; className?: string }) {
+  return (
+    <span
+      className={className}
+      style={{
+        maskImage: `url(${src})`,
+        WebkitMaskImage: `url(${src})`,
+        maskSize: "contain",
+        WebkitMaskSize: "contain",
+        maskRepeat: "no-repeat",
+        WebkitMaskRepeat: "no-repeat",
+        maskPosition: "center",
+        WebkitMaskPosition: "center",
+      }}
+    />
+  );
+}
+
 /* ------------------ TYPES ------------------ */
 
 interface Agent {
@@ -1641,7 +1660,7 @@ export default function AgentOrchestrator() {
             }}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
           >
-            <img src={miNewChatIcon} alt="" className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <SidebarMaskIcon src={miNewChatIcon} />
             <span>{t("New chat")}</span>
           </button>
 
@@ -1653,7 +1672,7 @@ export default function AgentOrchestrator() {
             }}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
           >
-            <img src={miSearchIcon} alt="" className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <SidebarMaskIcon src={miSearchIcon} />
             <span>{t("Search chats")}</span>
           </button>
 
@@ -1739,7 +1758,7 @@ export default function AgentOrchestrator() {
             }}
             className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent ${showImageGallery ? "bg-accent" : ""}`}
           >
-            <img src={imageLibraryLogo} alt="" className="h-4 w-4 shrink-0" />
+            <SidebarMaskIcon src={imageLibraryLogo} />
             <span>{t("Image")}</span>
           </button>
 
@@ -1748,7 +1767,7 @@ export default function AgentOrchestrator() {
             onClick={() => setShowChatHistoryExpand(!showChatHistoryExpand)}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
           >
-            <img src={miChatHistoryIcon} alt="" className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <SidebarMaskIcon src={miChatHistoryIcon} />
             <span className="flex-1 text-left">{t("Chat history")}</span>
             <ChevronRight size={14} className={`text-muted-foreground transition-transform ${showChatHistoryExpand ? "rotate-90" : ""}`} />
           </button>
@@ -1803,7 +1822,7 @@ export default function AgentOrchestrator() {
             onClick={() => setShowArchiveChatExpand(!showArchiveChatExpand)}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
           >
-            <img src={miArchiveIcon} alt="" className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <SidebarMaskIcon src={miArchiveIcon} />
             <span className="flex-1 text-left">{t("Archive Chat")}</span>
             <ChevronRight size={14} className={`text-muted-foreground transition-transform ${showArchiveChatExpand ? "rotate-90" : ""}`} />
           </button>
@@ -1899,7 +1918,7 @@ export default function AgentOrchestrator() {
             }
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
           >
-            <img src={miInformationIcon} alt="" className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <SidebarMaskIcon src={miInformationIcon} />
             <span>{t("Information")}</span>
           </button>
           <button
@@ -1911,7 +1930,7 @@ export default function AgentOrchestrator() {
             }}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
           >
-            <img src={miHelpIcon} alt="" className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <SidebarMaskIcon src={miHelpIcon} />
             <span>{t("Help")}</span>
           </button>
         </div>
