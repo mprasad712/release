@@ -1,1179 +1,2863 @@
-import {
-  Activity,
-  BarChart3,
-  LineChart,
-  ChevronDown,
-  ChevronUp,
-  Server,
-  ShieldCheck,
-  GitBranch,
-  Users,
-  ClipboardCheck,
-  UserCog,
-  Database,
-  Microscope,
-  Zap,
-  Code2,
-  TrendingUp,
-  Star,
-  DollarSign,
-  BarChart2,
-  AlertTriangle,
-} from "lucide-react";
-import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import {
-  LineChart as ReLineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  BarChart as ReBarChart,
-  Bar,
-  PieChart as RePieChart,
-  Pie,
-  Cell,
-  Area,
-  AreaChart,
-} from "recharts";
-
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Globe } from "lucide-react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
+import { Send, Sparkles, ChevronDown, Plus, MessageSquare, PanelLeftClose, PanelLeft, User, Loader2, Trash2, Check, ImagePlus, X, Clock, Search, Image, Archive, ChevronRight, Globe, BookOpen, Headphones, Info, HelpCircle, Mic, AudioLines, FileUp, Paintbrush, Lightbulb, Upload, MoreVertical, Folder, ArrowLeft, File, FileText, Shield, CheckCircle2, SquarePen, Mail, Download } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import {
+  useGetOrchAgents,
+  useGetOrchSessions,
+  useGetOrchMessages,
+  useDeleteOrchSession,
+} from "@/controllers/API/queries/orchestrator";
+import type {
+  OrchAgentSummary,
+  OrchSessionSummary,
+  OrchMessageResponse,
+} from "@/controllers/API/queries/orchestrator";
+import { usePostUploadFileV2 } from "@/controllers/API/queries/file-management/use-post-upload-file";
+import { useGetFilesV2 } from "@/controllers/API/queries/file-management/use-get-files";
+import { api, performStreamingRequest } from "@/controllers/API/api";
+import { getURL } from "@/controllers/API/helpers/constants";
+import { BASE_URL_API } from "@/constants/constants";
 import { AuthContext } from "@/contexts/authContext";
-import { api } from "@/controllers/API/api";
-import useRegionStore from "@/stores/regionStore";
+import { MarkdownField } from "@/modals/IOModal/components/chatView/chatMessage/components/edit-message";
+import { ContentBlockDisplay } from "@/components/core/chatComponents/ContentBlockDisplay";
+import type { ContentBlock } from "@/types/chat";
+import SharePointFilePicker from "./SharePointFilePicker";
+import OutlookConnector, { useOutlookStatus } from "./OutlookConnector";
+import NotebookLMPanel from "./NotebookLMPanel";
+import useAlertStore from "@/stores/alertStore";
+import openaiLogo from "@/assets/openai_logo.svg";
+import geminiLogo from "@/assets/gemini_logo.svg";
+import mistralLogo from "@/assets/mistral_logo.svg";
+import claudeLogo from "@/assets/claude_logo.svg";
+import azureLogo from "@/assets/azure_logo.svg";
+import metaLogo from "@/assets/meta_logo.svg";
+import cohereLogo from "@/assets/cohere_logo.svg";
+import perplexityLogo from "@/assets/perplexity_logo.svg";
+import nvidiaLogo from "@/assets/nvidia_logo.svg";
+import huggingfaceLogo from "@/assets/huggingface_logo.svg";
+import micoreLogo from "@/assets/micore.svg";
+import grokLogo from "@/assets/grok_logo.png";
+import nanoBananaLogo from "@/assets/nano_banana_logo.png";
+import dalleLogo from "@/assets/dalle_logo.svg";
+import googleLogo from "@/assets/google_logo.svg";
+import defaultLlmLogo from "@/assets/default_llm_logo.png";
 
-type SectionId =
-  | "platform"
-  | "governance"
-  | "cost"
-  | "lifecycle"
-  | "usage"
-  | "approval"
-  | "hitl"
-  | "rag"
-  | "quality"
-  | "performance"
-  | "code"
-  | "productivity"
-  | "experience"
-  | "roi"
-  | "maturity"
-  | "risk";
+/* ------------------ TYPES ------------------ */
 
-type SectionKpi = {
-  name: string;
-  value: string;
-  scope?: "global" | "local";
-};
-
-type ChartType = "line" | "bar" | "donut" | "area";
-
-type LineConfig = {
-  key: string;
-  color: string;
-};
-
-type SectionChart = {
-  title: string;
-  subtitle: string;
-  type: ChartType;
-  data: { label: string; value?: number; [key: string]: number | string | undefined }[];
-  lines?: LineConfig[];
-  xKey?: string;
-  xType?: "number" | "category";
-  xTickFormatter?: (value: number) => string;
-  placeholder?: boolean;
-  scope?: "global" | "local";
-};
-
-type SectionConfig = {
-  id: SectionId;
-  label: string;
-  headline: string;
-  description: string;
-  kpis: SectionKpi[];
-  charts: SectionChart[];
-};
-
-type DashboardKpiApi = {
+interface Agent {
   id: string;
-  label: string;
-  value: number;
-  unit?: string | null;
-};
+  name: string;
+  description: string;
+  online: boolean;
+  color: string;
+  deploy_id: string;
+  agent_id: string;
+  version_number: number;
+  version_label: string;
+  environment: "uat" | "prod" | string;
+}
 
-type DashboardSectionApiResponse = {
-  section: string;
-  kpis: DashboardKpiApi[];
-};
+interface Message {
+  id: string;
+  sender: "user" | "agent" | "system";
+  agentName?: string;
+  content: string;
+  timestamp: string;
+  category?: string;
+  contentBlocks?: ContentBlock[];
+  blocksState?: string;
+  files?: string[];
+  reasoningContent?: string;
+  // HITL (Human-in-the-Loop) approval fields
+  hitl?: boolean;
+  hitlActions?: string[];
+  hitlThreadId?: string;
+  hitlIsDeployed?: boolean;
+}
 
-type PendingSeriesPoint = {
-  date: string;
-  value: number;
-};
+interface FilePreview {
+  id: string;
+  file: File;
+  path?: string;
+  loading: boolean;
+  error: boolean;
+}
 
-type PendingSeriesResponse = {
-  range: string;
-  series: PendingSeriesPoint[];
-};
+/* ------------------ COLOR PALETTE ------------------ */
 
-type HitlSeriesResponse = {
-  range: string;
-  series: PendingSeriesPoint[];
-};
-
-const formatPercentMetric = (value: number | null | undefined): string => {
-  if (value == null || !Number.isFinite(value)) return "0%";
-  return `${value.toFixed(2)}%`;
-};
-
-// --- Section Definitions (data unchanged from original) -------------------
-
-const sections: SectionConfig[] = [
-  {
-    id: "platform",
-    label: "Platform Health & Reliability",
-    headline: "Platform Health & Reliability KPIs",
-    description: "Infrastructure uptime, API latency percentiles, error rates, and AKS cluster resource saturation.",
-    kpis: [
-      { name: "Platform Uptime %", value: "0%", scope: "global" },
-      { name: "API Latency P95", value: "0ms", scope: "global" },
-      { name: "API Latency P99", value: "0ms", scope: "global" },
-      { name: "Error Rate %", value: "0%", scope: "global" },
-      { name: "AKS Pod Scaling Events", value: "0" },
-      { name: "CPU/Memory Saturation %", value: "0%", scope: "global" },
-      { name: "Total Runs", value: "0" },
-      { name: "Total Failed Runs", value: "0" },
-      { name: "Execution Failure Rate", value: "0%" },
-    ],
-    charts: [
-      {
-        title: "API Latency P95 vs P99",
-        subtitle: "Latency comparison (24h)",
-        type: "line",
-        data: [],
-        scope: "global",
-        lines: [{ key: "p95", color: "#2563eb" }, { key: "p99", color: "#f97316" }],
-        xKey: "ts",
-        xType: "number",
-        xTickFormatter: (v) => new Date(v * 1000).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
-      },
-      {
-        title: "Error Rate Trend",
-        subtitle: "Error rate over time (24h)",
-        type: "area",
-        data: [],
-        scope: "global",
-        xKey: "ts",
-        xType: "number",
-        xTickFormatter: (v) => new Date(v * 1000).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
-      },
-      {
-        title: "CPU & Memory Saturation",
-        subtitle: "Cluster utilization (24h)",
-        type: "line",
-        data: [],
-        scope: "global",
-        lines: [{ key: "cpu", color: "#0ea5e9" }, { key: "memory", color: "#14b8a6" }],
-        xKey: "ts",
-        xType: "number",
-        xTickFormatter: (v) => new Date(v * 1000).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
-      },
-    ],
-  },
-  {
-    id: "governance",
-    label: "Governance & Guardrail",
-    headline: "Governance & Guardrail KPIs",
-    description: "Policy enforcement and agents operating without guardrails.",
-    kpis: [
-      { name: "Guardrail Violation Rate", value: "0%" },
-      { name: "Escalation to Human Review", value: "0" },
-      { name: "% Agents Without Guardrails", value: "0%" },
-    ],
-    charts: [],
-  },
-  {
-    id: "cost",
-    label: "Cost & Financial",
-    headline: "Cost & Financial KPIs",
-    description: "Agent execution costs, average cost per run, and monthly cost trends.",
-    kpis: [
-      { name: "Total Cost", value: "$0" },
-      { name: "Avg Cost Per Run", value: "$0" },
-    ],
-    charts: [
-      {
-        title: "Monthly Cost Trend",
-        subtitle: "Daily cost over time",
-        type: "area",
-        data: [],
-      },
-    ],
-  },
-  {
-    id: "lifecycle",
-    label: "Environment & Lifecycle",
-    headline: "Environment & Lifecycle Governance",
-    description: "Agent promotion across UAT and production, conversion rates, and deprecated agent tracking.",
-    kpis: [],
-    charts: [],
-  },
+const AGENT_COLORS = [
+  "#10a37f", "#ab68ff", "#19c37d", "#ef4146", "#f5a623", "#0ea5e9",
+  "#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#84cc16",
 ];
 
-const departmentSections: SectionConfig[] = [
-  {
-    id: "usage",
-    label: "Department Usage",
-    headline: "Department Usage KPIs",
-    description: "Active agents and response performance across your department.",
-    kpis: [
-      { name: "Active Agents in Dept (UAT)", value: "0" },
-      { name: "Active Agents in Dept (PROD)", value: "0" },
-      { name: "Avg Response Time", value: "0ms", scope: "global" },
-    ],
-    charts: [
-      { title: "Response Time Trend", subtitle: "Avg response time over time", type: "area", data: [], scope: "global" },
-    ],
-  },
-  {
-    id: "approval",
-    label: "Approval & Governance",
-    headline: "Approval & Governance KPIs",
-    description: "Pending approval queue depth, rejection rates, and average approval time.",
-    kpis: [
-      { name: "Pending Approvals", value: "0" },
-      { name: "Rejection Rate", value: "0%" },
-      { name: "Avg Approval Time", value: "0min" },
-    ],
-    charts: [
-      {
-        title: "Pending Approvals",
-        subtitle: "Queue trend",
-        type: "area",
-        data: [],
-      },
-    ],
-  },
-  {
-    id: "hitl",
-    label: "HITL Governance",
-    headline: "HITL Governance KPIs",
-    description: "Human-in-the-loop invocation frequency, response time benchmarks, and escalation patterns.",
-    kpis: [
-      { name: "Agents with HITL", value: "0" },
-      { name: "HITL Invocation Rate", value: "0%" },
-      { name: "Avg HITL Response Time", value: "0min" },
-    ],
-    charts: [
-      {
-        title: "Invocation Rate",
-        subtitle: "Daily trend",
-        type: "area",
-        data: [],
-      },
-      {
-        title: "Response Time",
-        subtitle: "Minutes by day",
-        type: "bar",
-        data: [],
-      },
-    ],
-  },
-  
-];
+/* ------------------ HELPERS ------------------ */
 
-const developerSections: SectionConfig[] = [
-  
-  {
-    id: "performance",
-    label: "Performance",
-    headline: "Performance KPIs",
-    description: "Agent response latency profiles - P95, and P99 percentiles to surface tail latency regressions.",
-    kpis: [
-      { name: "Avg Agent Latency", value: "0ms", scope: "global" },
-      { name: "Latency P95", value: "0ms", scope: "global" },
-      { name: "Latency P99", value: "0ms", scope: "global" },
-    ],
-    charts: [
-      {
-        title: "API Latency P95 vs P99",
-        subtitle: "Latency comparison",
-        type: "line",
-        data: [],
-        scope: "global",
-        lines: [{ key: "p95", color: "#2563eb" }, { key: "p99", color: "#f97316" }],
-        xKey: "ts",
-        xType: "number",
-        xTickFormatter: (v) => new Date(v * 1000).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
-      },
-    ],
-  },
-  
-];
+function mapApiAgents(apiAgents: OrchAgentSummary[]): Agent[] {
+  return apiAgents.map((a, i) => ({
+    id: a.deploy_id,
+    name: a.agent_name,
+    description: a.agent_description || "",
+    online: true,
+    color: AGENT_COLORS[i % AGENT_COLORS.length],
+    deploy_id: a.deploy_id,
+    agent_id: a.agent_id,
+    version_number: a.version_number,
+    version_label: a.version_label,
+    environment: a.environment,
+  }));
+}
 
-const businessSections: SectionConfig[] = [
-  
-  {
-    id: "experience",
-    label: "Experience",
-    headline: "Experience KPIs",
-    description: "End-user experience signals - response speed, satisfaction scores, and escalation frequency to human agents.",
-    kpis: [
-      { name: "Avg Response Time", value: "0ms", scope: "global" },
-      { name: "Avg Session Duration", value: "0ms" },
-      { name: "User Satisfaction Score", value: "0" },
-      { name: "Escalation to Human", value: "0" },
-    ],
-    charts: [
-      { title: "Response Time", subtitle: "Daily trend", type: "area", data: [], scope: "global" },
-    ],
-  },
-];
-
-const rootSections: SectionConfig[] = [
-  
-  {
-    id: "maturity",
-    label: "AI Maturity Indicators",
-    headline: "AI Maturity Indicators",
-    description: "Governance capability - adoption guardrails, RAG, and HITL coverage as signals of AI maturity.",
-    kpis: [
-      { name: "% Agents with Guardrails", value: "0%" },
-      { name: "% Agents with RAG", value: "0%" },
-      { name: "% Agents with HITL", value: "0%" },
-    ],
-    charts: [],
-  },
-  
-];
-
-// --- Style constants -------------------------------------------------------
-
-const chartColors = ["#2563eb", "#14b8a6", "#f97316", "#a855f7"];
-
-const sectionThemes: Record<SectionId, { badge: string; accent: string; border: string; headerBg: string; iconBg: string; icon: React.ReactNode }> = {
-  platform:    { badge: "bg-sky-100 text-sky-700",         accent: "#0ea5e9", border: "border-l-sky-500",     headerBg: "bg-sky-50/60 dark:bg-sky-950/20",     iconBg: "bg-sky-100 dark:bg-sky-900/30",     icon: <Server className="h-4 w-4 text-sky-600 dark:text-sky-400" /> },
-  governance:  { badge: "bg-emerald-100 text-emerald-700", accent: "#10b981", border: "border-l-emerald-500", headerBg: "bg-emerald-50/60 dark:bg-emerald-950/20", iconBg: "bg-emerald-100 dark:bg-emerald-900/30", icon: <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" /> },
-  cost:        { badge: "bg-amber-100 text-amber-700",     accent: "#f59e0b", border: "border-l-amber-500",   headerBg: "bg-amber-50/60 dark:bg-amber-950/20",   iconBg: "bg-amber-100 dark:bg-amber-900/30",   icon: <DollarSign className="h-4 w-4 text-amber-600 dark:text-amber-400" /> },
-  lifecycle:   { badge: "bg-violet-100 text-violet-700",   accent: "#8b5cf6", border: "border-l-violet-500",  headerBg: "bg-violet-50/60 dark:bg-violet-950/20", iconBg: "bg-violet-100 dark:bg-violet-900/30", icon: <GitBranch className="h-4 w-4 text-violet-600 dark:text-violet-400" /> },
-  usage:       { badge: "bg-sky-100 text-sky-700",         accent: "#0ea5e9", border: "border-l-sky-500",     headerBg: "bg-sky-50/60 dark:bg-sky-950/20",     iconBg: "bg-sky-100 dark:bg-sky-900/30",     icon: <Users className="h-4 w-4 text-sky-600 dark:text-sky-400" /> },
-  approval:    { badge: "bg-amber-100 text-amber-700",     accent: "#f59e0b", border: "border-l-amber-500",   headerBg: "bg-amber-50/60 dark:bg-amber-950/20",   iconBg: "bg-amber-100 dark:bg-amber-900/30",   icon: <ClipboardCheck className="h-4 w-4 text-amber-600 dark:text-amber-400" /> },
-  hitl:        { badge: "bg-emerald-100 text-emerald-700", accent: "#10b981", border: "border-l-emerald-500", headerBg: "bg-emerald-50/60 dark:bg-emerald-950/20", iconBg: "bg-emerald-100 dark:bg-emerald-900/30", icon: <UserCog className="h-4 w-4 text-emerald-600 dark:text-emerald-400" /> },
-  rag:         { badge: "bg-violet-100 text-violet-700",   accent: "#8b5cf6", border: "border-l-violet-500",  headerBg: "bg-violet-50/60 dark:bg-violet-950/20", iconBg: "bg-violet-100 dark:bg-violet-900/30", icon: <Database className="h-4 w-4 text-violet-600 dark:text-violet-400" /> },
-  quality:     { badge: "bg-sky-100 text-sky-700",         accent: "#0ea5e9", border: "border-l-sky-500",     headerBg: "bg-sky-50/60 dark:bg-sky-950/20",     iconBg: "bg-sky-100 dark:bg-sky-900/30",     icon: <Microscope className="h-4 w-4 text-sky-600 dark:text-sky-400" /> },
-  performance: { badge: "bg-emerald-100 text-emerald-700", accent: "#10b981", border: "border-l-emerald-500", headerBg: "bg-emerald-50/60 dark:bg-emerald-950/20", iconBg: "bg-emerald-100 dark:bg-emerald-900/30", icon: <Zap className="h-4 w-4 text-emerald-600 dark:text-emerald-400" /> },
-  code:        { badge: "bg-amber-100 text-amber-700",     accent: "#f59e0b", border: "border-l-amber-500",   headerBg: "bg-amber-50/60 dark:bg-amber-950/20",   iconBg: "bg-amber-100 dark:bg-amber-900/30",   icon: <Code2 className="h-4 w-4 text-amber-600 dark:text-amber-400" /> },
-  productivity:{ badge: "bg-sky-100 text-sky-700",         accent: "#0ea5e9", border: "border-l-sky-500",     headerBg: "bg-sky-50/60 dark:bg-sky-950/20",     iconBg: "bg-sky-100 dark:bg-sky-900/30",     icon: <TrendingUp className="h-4 w-4 text-sky-600 dark:text-sky-400" /> },
-  experience:  { badge: "bg-emerald-100 text-emerald-700", accent: "#10b981", border: "border-l-emerald-500", headerBg: "bg-emerald-50/60 dark:bg-emerald-950/20", iconBg: "bg-emerald-100 dark:bg-emerald-900/30", icon: <Star className="h-4 w-4 text-emerald-600 dark:text-emerald-400" /> },
-  roi:         { badge: "bg-sky-100 text-sky-700",         accent: "#0ea5e9", border: "border-l-sky-500",     headerBg: "bg-sky-50/60 dark:bg-sky-950/20",     iconBg: "bg-sky-100 dark:bg-sky-900/30",     icon: <DollarSign className="h-4 w-4 text-sky-600 dark:text-sky-400" /> },
-  maturity:    { badge: "bg-emerald-100 text-emerald-700", accent: "#10b981", border: "border-l-emerald-500", headerBg: "bg-emerald-50/60 dark:bg-emerald-950/20", iconBg: "bg-emerald-100 dark:bg-emerald-900/30", icon: <BarChart2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" /> },
-  risk:        { badge: "bg-rose-100 text-rose-700",       accent: "#f43f5e", border: "border-l-rose-500",    headerBg: "bg-rose-50/60 dark:bg-rose-950/20",     iconBg: "bg-rose-100 dark:bg-rose-900/30",     icon: <AlertTriangle className="h-4 w-4 text-rose-600 dark:text-rose-400" /> },
-};
-
-// --- Tooltips -------------------------------------------------------------
-
-function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: { value: number; name?: string; dataKey?: string }[]; label?: string }) {
-  if (!active || !payload?.length) return null;
+function inferHitlFromText(text: string): boolean {
+  if (!text) return false;
+  const normalized = text.toLowerCase();
   return (
-    <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs shadow">
-      <p className="font-semibold text-foreground">{label}</p>
-      {payload.map((e) => (
-        <p key={e.dataKey ?? e.name ?? e.value} className="text-muted-foreground">
-          {(e.name ?? e.dataKey ?? "value")}: {e.value}
-        </p>
-      ))}
-    </div>
+    normalized.includes("waiting for human review") &&
+    normalized.includes("available actions")
   );
 }
 
-function DonutTooltip({ active, payload }: { active?: boolean; payload?: { name: string; value: number }[] }) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs shadow">
-      <p className="font-semibold text-foreground">{payload[0].name}</p>
-      <p className="text-muted-foreground">{payload[0].value}</p>
-    </div>
-  );
+function extractHitlActions(text: string): string[] {
+  if (!text) return [];
+  const out = new Set<string>();
+
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^[\s>*•-]*([A-Za-z][A-Za-z ]*[A-Za-z])\s*$/);
+    if (!m?.[1]) continue;
+    const action = m[1].trim();
+    if (/approve|reject|edit|cancel/i.test(action)) {
+      out.add(action);
+    }
+  }
+
+  // Fallback for inline formats like "Available actions: • Approve • Reject"
+  if (out.size === 0) {
+    const inline = text.match(/approve|reject|edit|cancel/gi) ?? [];
+    for (const action of inline) {
+      out.add(action.charAt(0).toUpperCase() + action.slice(1).toLowerCase());
+    }
+  }
+
+  return Array.from(out);
 }
 
-// --- Chart Size Helper ------------------------------------------------------
+function mapApiMessages(apiMessages: OrchMessageResponse[]): Message[] {
+  return apiMessages.map((m) => {
+    const props = (m.properties || {}) as Record<string, any>;
+    const isHitl = !!props.hitl || inferHitlFromText(m.text || "");
+    const parsedActions = Array.isArray(props.actions)
+      ? props.actions
+      : extractHitlActions(m.text || "");
 
-function ChartSize({
-  className,
-  children,
-}: {
-  className?: string;
-  children: (size: { width: number; height: number }) => React.ReactNode;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ width: 0, height: 0 });
+    // Restore content_blocks (reasoning / tool-use steps) from persisted data.
+    // During streaming these arrive via SSE; on reload they come from the API.
+    const toolBlocks = (m.content_blocks ?? []).filter((block: any) =>
+      block.contents?.some((c: any) => c.type === "tool_use"),
+    );
 
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    const update = () => {
-      const rect = el.getBoundingClientRect();
-      const next = {
-        width: Math.floor(rect.width),
-        height: Math.floor(rect.height),
-      };
-      setSize((prev) =>
-        prev.width === next.width && prev.height === next.height ? prev : next,
-      );
+    return {
+      id: m.id,
+      sender: m.sender as "user" | "agent" | "system",
+      agentName: m.sender === "agent" ? m.sender_name : undefined,
+      content: m.text,
+      timestamp: m.timestamp
+        ? new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        : "",
+      category: m.category || "message",
+      files: m.files && m.files.length > 0 ? m.files : undefined,
+      contentBlocks: toolBlocks.length > 0 ? toolBlocks : undefined,
+      blocksState: toolBlocks.length > 0 ? "complete" : undefined,
+      // Restore HITL metadata from persisted properties.
+      // Fallback to text inference because some interrupted rows may miss fields.
+      hitl: isHitl,
+      hitlActions: isHitl ? parsedActions : undefined,
+      hitlThreadId: isHitl ? (props.thread_id ?? m.session_id ?? "") : undefined,
+      // Orchestrator chat runs deployed agents; default true when missing.
+      hitlIsDeployed: isHitl
+        ? (props.is_deployed_run !== undefined ? !!props.is_deployed_run : true)
+        : undefined,
+      reasoningContent: (m as any).reasoning_content || undefined,
     };
+  });
+}
 
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
+function hitlStatusLabel(value: string): string {
+  const normalized = (value || "").toLowerCase();
+  if (normalized.includes("reject")) return "Rejected";
+  if (normalized.includes("approve")) return "Approved";
+  if (normalized.includes("edit")) return "Edited";
+  if (normalized.includes("cancel")) return "Cancelled";
+  if (normalized.includes("timeout")) return "Timed out";
+  return "Resolved";
+}
+
+function groupSessionsByDate(
+  sessions: OrchSessionSummary[],
+  getLabel: (key: string) => string,
+): Record<string, OrchSessionSummary[]> {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const weekAgo = new Date(today);
+  weekAgo.setDate(weekAgo.getDate() - 7);
+
+  const groups: Record<string, OrchSessionSummary[]> = {};
+
+  for (const s of sessions) {
+    const ts = s.last_timestamp ? new Date(s.last_timestamp) : new Date(0);
+    let label: string;
+    if (ts >= today) label = getLabel("Today");
+    else if (ts >= yesterday) label = getLabel("Yesterday");
+    else if (ts >= weekAgo) label = getLabel("Previous 7 Days");
+    else label = getLabel("Older");
+
+    if (!groups[label]) groups[label] = [];
+    groups[label].push(s);
+  }
+  return groups;
+}
+
+/* ------------------ AI MODEL OPTIONS (Addon) ------------------ */
+
+interface AiModelOption {
+  id: string;
+  name: string;
+  icon: string;        // image path (svg/png) for the model
+  group: "main" | "more";
+  capabilities?: Record<string, any>;
+  is_default?: boolean;
+}
+
+// Resolve a model logo by matching id/name/provider against known patterns.
+function resolveModelIcon(model: { model_id?: string; model_name?: string; display_name?: string; provider?: string }): string {
+  const hay = `${model.model_id || ""} ${model.model_name || ""} ${model.display_name || ""}`.toLowerCase();
+  const provider = (model.provider || "").toLowerCase();
+
+  if (/mibuddy|mi[\s_-]?core|micore/.test(hay)) return micoreLogo;
+  if (/dall[\s_-]?e/.test(hay)) return dalleLogo;
+  if (/grok/.test(hay)) return grokLogo;
+  if (/nano[\s_-]?banana/.test(hay)) return nanoBananaLogo;
+  if (/web[\s_-]?search|google[\s_-]?search/.test(hay)) return googleLogo;
+  if (/gemini|bard|palm/.test(hay)) return geminiLogo;
+  if (/mistral|mixtral/.test(hay)) return mistralLogo;
+  if (/claude|anthropic/.test(hay)) return claudeLogo;
+  if (/llama|meta/.test(hay)) return metaLogo;
+  if (/cohere|command[\s_-]?r/.test(hay)) return cohereLogo;
+  if (/perplexity|sonar/.test(hay)) return perplexityLogo;
+  if (/nvidia|nemotron/.test(hay)) return nvidiaLogo;
+  if (/hugging[\s_-]?face/.test(hay)) return huggingfaceLogo;
+  if (/gpt|openai|o1|o3|o4/.test(hay)) return openaiLogo;
+  if (/azure/.test(hay)) return azureLogo;
+
+  // Provider fallbacks
+  if (provider === "openai" || provider === "openai_compatible") return openaiLogo;
+  if (provider === "azure") return azureLogo;
+  if (provider === "anthropic") return claudeLogo;
+  if (provider === "google" || provider === "google_vertex") return geminiLogo;
+  return defaultLlmLogo;
+}
+
+
+// Empty default — models are fetched from API on mount
+const FALLBACK_AI_MODELS: AiModelOption[] = [];
+
+/* ------------------ IMAGE GALLERY VIEW ------------------ */
+
+const IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"];
+
+function ImageGalleryView({
+  onBack,
+  selectedImage,
+  onSelectImage,
+  onClosePreview,
+}: {
+  onBack: () => void;
+  selectedImage: { src: string; name: string } | null;
+  onSelectImage: (img: { src: string; name: string }) => void;
+  onClosePreview: () => void;
+}) {
+  const { t } = useTranslation();
+  const [images, setGalleryImages] = useState<{ id: string; name: string; src: string; createdAt: string }[]>([]);
+  const [isLoading, setGalleryLoading] = useState(true);
+
+  // Fetch AI-generated images from MiBuddy dedicated endpoint
+  useEffect(() => {
+    const tokenMatch = document.cookie.match(/(?:^|;\s*)access_token_lf=([^;]*)/);
+    const headers: Record<string, string> = {};
+    if (tokenMatch?.[1]) headers["Authorization"] = `Bearer ${decodeURIComponent(tokenMatch[1])}`;
+
+    fetch(`${getURL("ORCHESTRATOR")}/generated-images`, { headers, credentials: "include" })
+      .then((res) => res.json())
+      .then((data: any[]) => {
+        setGalleryImages(
+          (data || []).map((img: any, idx: number) => ({
+            id: `gen-${idx}`,
+            name: img.name || "AI Generated Image",
+            src: img.src,
+            createdAt: "",
+          })),
+        );
+      })
+      .catch((err) => console.warn("Failed to load generated images:", err))
+      .finally(() => setGalleryLoading(false));
   }, []);
 
-  return (
-    <div ref={containerRef} className={className}>
-      {size.width > 0 && size.height > 0 ? children(size) : null}
-    </div>
-  );
-}
-// --- Chart Block -----------------------------------------------------------
-
-function ChartBlock({ chart, accentColor }: { chart: SectionChart; accentColor: string }) {
-  if (chart.type === "area") {
-    const xKey = chart.xKey ?? "label";
-    const xType = chart.xType ?? "category";
-    const gradId = `grad-${chart.title.replace(/\W/g, "")}`;
-    return (
-      <div className="h-44">
-        <ChartSize className="h-full w-full">{({ width, height }) => (
-          <AreaChart width={width} height={height} data={chart.data} margin={{ top: 8, right: 12, left: -10, bottom: 0 }}>
-            <defs>
-              <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={accentColor} stopOpacity={0.15} />
-                <stop offset="95%" stopColor={accentColor} stopOpacity={0.01} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-            <XAxis dataKey={xKey} type={xType} domain={xType === "number" ? ["dataMin", "dataMax"] : undefined} tickFormatter={xType === "number" ? chart.xTickFormatter : undefined} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-            <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-            <Tooltip content={<ChartTooltip />} labelFormatter={xType === "number" && chart.xTickFormatter ? chart.xTickFormatter : undefined} />
-            <Area type="monotone" dataKey="value" stroke={accentColor} strokeWidth={2} fill={`url(#${gradId})`} dot={false} connectNulls />
-          </AreaChart>
-        )}</ChartSize>
-      </div>
-    );
-  }
-
-  if (chart.type === "line") {
-    const xKey = chart.xKey ?? "label";
-    const xType = chart.xType ?? "category";
-    return (
-      <div className="h-44">
-        <ChartSize className="h-full w-full">{({ width, height }) => (
-          <ReLineChart width={width} height={height} data={chart.data} margin={{ top: 8, right: 12, left: -10, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-            <XAxis dataKey={xKey} type={xType} domain={xType === "number" ? ["dataMin", "dataMax"] : undefined} tickFormatter={xType === "number" ? chart.xTickFormatter : undefined} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-            <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-            <Tooltip content={<ChartTooltip />} labelFormatter={xType === "number" && chart.xTickFormatter ? chart.xTickFormatter : undefined} />
-            {chart.lines?.length
-              ? chart.lines.map((l) => <Line key={l.key} type="monotone" dataKey={l.key} stroke={l.color} strokeWidth={2} dot={false} connectNulls />)
-              : <Line type="monotone" dataKey="value" stroke={accentColor} strokeWidth={2} dot={false} connectNulls />}
-          </ReLineChart>
-        )}</ChartSize>
-      </div>
-    );
-  }
-
-  if (chart.type === "bar") {
-    return (
-      <div className="h-44">
-        <ChartSize className="h-full w-full">{({ width, height }) => (
-          <ReBarChart width={width} height={height} data={chart.data} margin={{ top: 8, right: 12, left: -10, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-            <XAxis dataKey="label" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-            <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-            <Tooltip content={<ChartTooltip />} />
-            <Bar dataKey="value" radius={[5, 5, 0, 0]}>
-              {chart.data.map((e, i) => <Cell key={String(e.label)} fill={chartColors[i % chartColors.length]} />)}
-            </Bar>
-          </ReBarChart>
-        )}</ChartSize>
-      </div>
-    );
-  }
+  const handleDownload = async (src: string, name: string) => {
+    try {
+      const res = await fetch(src);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name || `image-${Date.now()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      window.open(src, "_blank");
+    }
+  };
 
   return (
-    <div className="flex h-44 items-center gap-4">
-      <ChartSize className="h-full w-1/2">{({ width, height }) => (
-        <RePieChart width={width} height={height}>
-          <Pie data={chart.data} dataKey="value" nameKey="label" innerRadius={38} outerRadius={62} paddingAngle={2}>
-            {chart.data.map((e, i) => <Cell key={String(e.label)} fill={chartColors[i % chartColors.length]} />)}
-          </Pie>
-          <Tooltip content={<DonutTooltip />} />
-        </RePieChart>
-      )}</ChartSize>
-      <div className="space-y-2">
-        {chart.data.map((slice, i) => (
-          <div key={String(slice.label)} className="flex items-center gap-2 text-xs">
-            <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: chartColors[i % chartColors.length] }} />
-            <span className="text-muted-foreground">{slice.label}</span>
-            <span className="font-semibold text-foreground">{slice.value}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-
-
-// --- Section Card ----------------------------------------------------------
-
-function SectionCard({
-  section,
-  displayKpis,
-  charts,
-  approvalRangeSelector,
-  hitlRangeSelector,
-  costRangeSelector,
-  defaultExpanded,
-}: {
-  section: SectionConfig;
-  displayKpis: SectionKpi[];
-  charts: SectionChart[];
-  approvalRangeSelector?: React.ReactNode;
-  hitlRangeSelector?: React.ReactNode;
-  costRangeSelector?: React.ReactNode;
-  defaultExpanded: boolean;
-}) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
-  const { t } = useTranslation();
-  const theme = sectionThemes[section.id];
-  const isEmpty = displayKpis.length === 0 && charts.length === 0;
-  const isMaturity = section.id === "maturity";
-
-  return (
-    <div
-      className={`overflow-hidden rounded-2xl border border-border border-l-4 ${theme.border} bg-card shadow-sm transition-shadow duration-200 ${expanded ? "shadow-md" : "hover:shadow-md"}`}
-    >
-      {/* -- Clickable Header -- */}
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className={`flex w-full items-center justify-between px-5 py-5 text-left transition-colors ${theme.headerBg} hover:brightness-95`}
-      >
-        {/* Left: icon + label + description */}
-        <div className="flex items-center gap-3 min-w-0">
-          {/* Icon badge */}
-          <div className={`shrink-0 flex h-8 w-8 items-center justify-center rounded-lg ${theme.iconBg}`}>
-            {theme.icon}
-          </div>
-
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-foreground leading-tight">
-                {t(section.label)}
-              </span>
-              {isEmpty && (
-                <span className="text-xxs text-muted-foreground rounded-full border border-border bg-background px-2 py-0.5 leading-none">
-                  No data configured
-                </span>
-              )}
-            </div>
-            <p className="mt-0.5 text-xxs text-muted-foreground truncate max-w-xl hidden sm:block">
-              {section.description}
-            </p>
-          </div>
-        </div>
-
-        {/* Right: meta + chevron */}
-        <div className="flex shrink-0 items-center gap-3 ml-4">
-          {!isEmpty && (
-            <div className="hidden sm:flex items-center gap-1.5">
-              {displayKpis.length > 0 && (
-                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xxs font-medium ${theme.badge}`}>
-                  {displayKpis.length} KPI{displayKpis.length !== 1 ? "s" : ""}
-                </span>
-              )}
-              {charts.length > 0 && (
-                <span className="inline-flex items-center rounded-full border border-border bg-background px-2 py-0.5 text-xxs font-medium text-muted-foreground">
-                  {charts.length} chart{charts.length !== 1 ? "s" : ""}
-                </span>
-              )}
-            </div>
-          )}
-          <div className={`rounded-full p-1 transition-colors ${expanded ? theme.iconBg : "bg-transparent"}`}>
-            {expanded
-              ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
-              : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-          </div>
-        </div>
-      </button>
-
-      {/* -- Collapsed Preview - KPI chips visible when closed -- */}
-      {!expanded && !isEmpty && displayKpis.length > 0 && (
-        <div
-          className="border-t border-border px-5 py-3 flex flex-wrap gap-2"
-          style={{ backgroundColor: theme.accent + "06" }}
+    <div className="relative flex flex-1 flex-col">
+      {/* Header */}
+      <div className="flex h-[52px] shrink-0 items-center gap-3 border-b border-border px-4">
+        <button
+          onClick={onBack}
+          className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
         >
-          {displayKpis.map((kpi) => (
-            <div
-              key={kpi.name}
-              className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 shadow-sm"
-            >
-              <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: theme.accent }} />
-              <span className="text-xxs text-muted-foreground">{t(kpi.name)}</span>
-              {kpi.scope === "global" && (
-                <span className="rounded-full border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-xxs font-bold uppercase tracking-wide text-sky-700">
-                  Global
-                </span>
-              )}
-              <span className="text-xxs font-bold text-foreground">{kpi.value}</span>
+          <ArrowLeft size={18} />
+        </button>
+        <Image size={20} className="text-primary" />
+        <h2 className="text-base font-semibold text-foreground">{t("My Images")}</h2>
+        <span className="ml-auto text-xs text-muted-foreground">
+          {images.length > 0 ? `${images.length} ${t("most recent")}` : ""}
+        </span>
+      </div>
+
+      {/* Grid */}
+      <div className="flex-1 overflow-y-auto p-6">
+        {isLoading ? (
+          <div className="flex h-64 items-center justify-center">
+            <Loader2 size={32} className="animate-spin text-muted-foreground" />
+          </div>
+        ) : images.length === 0 ? (
+          <div className="flex h-64 flex-col items-center justify-center gap-3 text-muted-foreground">
+            <Image size={48} className="opacity-30" />
+            <p className="text-lg">{t("No images available")}</p>
+            <p className="text-sm">{t("Images generated by agents will appear here")}</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+            {images.map((img) => (
+              <div
+                key={img.id}
+                className="group relative cursor-pointer overflow-hidden rounded-xl border border-border bg-muted/30 transition-shadow hover:shadow-lg hover:border-primary/50"
+                onClick={() => onSelectImage({ src: img.src, name: img.name })}
+              >
+                <div className="aspect-square overflow-hidden">
+                  <img
+                    src={img.src}
+                    alt={img.name}
+                    className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                    loading="lazy"
+                  />
+                </div>
+                <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100">
+                  <div className="flex items-center justify-between p-3">
+                    <span className="max-w-[70%] truncate text-xs font-medium text-white">{img.name}</span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDownload(img.src, img.name); }}
+                      className="rounded-full bg-white/20 p-1.5 text-white backdrop-blur-sm hover:bg-white/40"
+                    >
+                      <Download size={14} />
+                    </button>
+                  </div>
+                </div>
+                {img.createdAt && (
+                  <div className="absolute right-2 top-2 rounded-md bg-black/40 px-1.5 py-0.5 text-xxs text-white opacity-0 backdrop-blur-sm group-hover:opacity-100">
+                    {new Date(img.createdAt).toLocaleDateString()}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Lightbox */}
+      {selectedImage && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80" onClick={onClosePreview}>
+          <div className="relative flex max-h-[90vh] max-w-[90vw] flex-col items-center" onClick={(e) => e.stopPropagation()}>
+            <button onClick={onClosePreview} className="absolute -right-3 -top-3 z-10 rounded-full bg-zinc-800 p-2 text-white shadow-lg hover:bg-zinc-700">
+              <X size={18} />
+            </button>
+            <img src={selectedImage.src} alt={selectedImage.name} className="max-h-[80vh] max-w-[85vw] rounded-lg object-contain" />
+            <div className="mt-4 flex items-center gap-4">
+              <span className="max-w-xs truncate text-sm text-white/80">{selectedImage.name}</span>
+              <button onClick={() => handleDownload(selectedImage.src, selectedImage.name)} className="flex items-center gap-2 rounded-lg bg-white/10 px-4 py-2 text-sm text-white backdrop-blur-sm hover:bg-white/20">
+                <Download size={16} />
+                {t("Download")}
+              </button>
             </div>
-          ))}
+          </div>
         </div>
       )}
+    </div>
+  );
+}
 
-      {/* -- Expanded Body -- */}
-      {expanded && !isEmpty && (
-        <div className="border-t border-border bg-card px-6 pb-6">
+/* ------------------ COMPONENT ------------------ */
 
-          {/* KPI grid - uses section accent color consistently */}
-          {displayKpis.length > 0 && (
-            <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
-              {displayKpis.map((kpi, i) => (
-                <div
-                  key={kpi.name}
-                  className="group relative overflow-hidden rounded-xl border border-border bg-card p-4 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md"
-                >
-                  {/* Left accent stripe */}
-                  <div
-                    className="absolute left-0 top-0 bottom-0 w-0.5 rounded-l-xl"
-                    style={{ backgroundColor: theme.accent }}
+export default function AgentOrchestrator() {
+  const { t } = useTranslation();
+  const { permissions } = useContext(AuthContext);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState("");
+  const [showMentions, setShowMentions] = useState(false);
+  const [filteredAgents, setFilteredAgents] = useState<Agent[]>([]);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [selectedModelId, setSelectedModelId] = useState("");
+  const [showModelPicker, setShowModelPicker] = useState(false);
+  const [currentSessionId, setCurrentSessionId] = useState<string>(crypto.randomUUID());
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const [streamingAgentName, setStreamingAgentName] = useState<string>("");
+  const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
+  // HITL state: track which message had its action clicked
+  const [hitlDoneMap, setHitlDoneMap] = useState<Record<string, string>>({});
+  const [hitlLoadingId, setHitlLoadingId] = useState<string | null>(null);
+  const [hitlLoadingAction, setHitlLoadingAction] = useState<string | null>(null);
+  const [uploadFiles, setUploadFiles] = useState<FilePreview[]>([]);
+  // Addon UI state
+  const [showPlusMenu, setShowPlusMenu] = useState(false);
+  const [plusMenuPos, setPlusMenuPos] = useState<{ bottom: number; left: number }>({ bottom: 0, left: 0 });
+  const [cotReasoning, setCotReasoning] = useState(false);
+  const [showChatHistoryExpand, setShowChatHistoryExpand] = useState(false);
+  const [showArchiveChatExpand, setShowArchiveChatExpand] = useState(false);
+  const [sidebarSearchQuery, setSidebarSearchQuery] = useState("");
+  const [showSearchInput, setShowSearchInput] = useState(false);
+  const [chatMenuOpenId, setChatMenuOpenId] = useState<string | null>(null);
+  const [chatMenuPos, setChatMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  // Addon: AI Model selector state
+  const [showAiModelPicker, setShowAiModelPicker] = useState(false);
+  const [showMoreModels, setShowMoreModels] = useState(false);
+  const [selectedAiModel, setSelectedAiModel] = useState<string | null>(null);
+  const [aiModels, setAiModels] = useState<AiModelOption[]>(FALLBACK_AI_MODELS);
+  const [noAgentMode, setNoAgentMode] = useState(false);
+  // Addon: SharePoint file picker
+  const [spPickerOpen, setSpPickerOpen] = useState(false);
+  // Addon: Image gallery view (replaces chat area when active)
+  const [showImageGallery, setShowImageGallery] = useState(false);
+  const [showNotebookLM, setShowNotebookLM] = useState(false);
+  const [selectedGalleryImage, setSelectedGalleryImage] = useState<{ src: string; name: string } | null>(null);
+  // Addon: Canvas mode
+  const [isCanvasEnabled, setIsCanvasEnabled] = useState(false);
+  const [canvasEditingId, setCanvasEditingId] = useState<string | null>(null);
+  const [canvasEditTexts, setCanvasEditTexts] = useState<Record<string, string>>({});
+  // Addon: Autocomplete suggestions
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [selectedSuggestionIdx, setSelectedSuggestionIdx] = useState(-1);
+  const suggestionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Addon: Speech-to-Text (mic)
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+  // Addon: Outlook connector
+  const [outlookDialogOpen, setOutlookDialogOpen] = useState(false);
+  const { isConnected: isOutlookConnected, refresh: refreshOutlookStatus, setIsConnected: setOutlookConnected } = useOutlookStatus();
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const modelPickerRef = useRef<HTMLDivElement>(null);
+  const aiModelPickerRef = useRef<HTMLDivElement>(null);
+  const hitlSessionRef = useRef<string | null>(null);
+
+  /* ------------------ FILE UPLOAD ------------------ */
+
+  const { mutate: uploadFileMutate } = usePostUploadFileV2();
+  // Model mode (No Agent): allow documents + images
+  // Agent mode: allow images only
+  const IMAGE_EXTENSIONS_LIST = ["png", "jpg", "jpeg"];
+  const DOC_EXTENSIONS_LIST = [
+    "pdf", "docx", "pptx", "xlsx", "xls",                   // Documents
+    "txt", "md", "csv",                                      // Text
+    "py", "js", "ts", "java", "cpp", "c", "cs", "go",       // Code
+    "json", "html", "css", "php", "rb", "sh", "tex",        // More code/markup
+  ];
+  const ALLOWED_EXTENSIONS = noAgentMode
+    ? [...IMAGE_EXTENSIONS_LIST, ...DOC_EXTENSIONS_LIST]     // Model mode: all file types
+    : IMAGE_EXTENSIONS_LIST;                                  // Agent mode: images only
+
+  const uploadFile = (file: File) => {
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    if (!ext || !ALLOWED_EXTENSIONS.includes(ext)) return;
+
+    const id = crypto.randomUUID().slice(0, 10);
+    setUploadFiles((prev) => [...prev, { id, file, loading: true, error: false }]);
+
+    if (noAgentMode) {
+      // Model mode: upload to MiBuddy dedicated container
+      const formData = new FormData();
+      formData.append("file", file);
+      const tokenMatch = document.cookie.match(/(?:^|;\s*)access_token_lf=([^;]*)/);
+      const headers: Record<string, string> = {};
+      if (tokenMatch?.[1]) headers["Authorization"] = `Bearer ${decodeURIComponent(tokenMatch[1])}`;
+
+      fetch(`${getURL("ORCHESTRATOR")}/upload`, {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: formData,
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+          return res.json();
+        })
+        .then((data) => {
+          setUploadFiles((prev) =>
+            prev.map((f) => (f.id === id ? { ...f, loading: false, path: data.file_path } : f)),
+          );
+        })
+        .catch(() => {
+          setUploadFiles((prev) =>
+            prev.map((f) => (f.id === id ? { ...f, loading: false, error: true } : f)),
+          );
+        });
+    } else {
+      // Agent mode: upload to main storage (existing flow)
+      uploadFileMutate(
+        { file },
+        {
+          onSuccess: (data: any) => {
+            setUploadFiles((prev) =>
+              prev.map((f) => (f.id === id ? { ...f, loading: false, path: data.file_path } : f)),
+            );
+          },
+          onError: () => {
+            setUploadFiles((prev) =>
+              prev.map((f) => (f.id === id ? { ...f, loading: false, error: true } : f)),
+            );
+          },
+        },
+      );
+    }
+  };
+
+  const MAX_FILES = 5;
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    const currentCount = uploadFiles.length;
+    const available = MAX_FILES - currentCount;
+
+    if (available <= 0) {
+      alert(`Maximum ${MAX_FILES} files allowed.`);
+      e.target.value = "";
+      return;
+    }
+
+    const filesToUpload = Array.from(files).slice(0, available);
+    if (files.length > available) {
+      alert(`Only ${available} more file(s) can be added. Maximum is ${MAX_FILES}.`);
+    }
+
+    for (const file of filesToUpload) {
+      uploadFile(file);
+    }
+    e.target.value = "";
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith("image/")) {
+        const blob = items[i].getAsFile();
+        if (blob) {
+          e.preventDefault();
+          uploadFile(blob);
+          return;
+        }
+      }
+    }
+  };
+
+  const removeFile = (id: string) => {
+    setUploadFiles((prev) => prev.filter((f) => f.id !== id));
+  };
+
+  /* ------------------ SHAREPOINT FILE PICKER (Addon) ------------------ */
+
+  const handleSpFilesSelected = (files: File[]) => {
+    const rejected: string[] = [];
+    for (const file of files) {
+      const ext = file.name.split(".").pop()?.toLowerCase();
+      if (!ext || !ALLOWED_EXTENSIONS.includes(ext)) {
+        rejected.push(file.name);
+        continue;
+      }
+      uploadFile(file);
+    }
+    if (rejected.length > 0) {
+      const allowedHint = noAgentMode
+        ? "Allowed file types: documents and images."
+        : "When an agent is selected, only image files are accepted. Switch to Model mode to upload documents.";
+      useAlertStore.getState().setErrorData({
+        title: "Some SharePoint files were not uploaded",
+        list: [...rejected, allowedHint],
+      });
+    }
+  };
+
+  /* ------------------ API HOOKS ------------------ */
+
+  const { data: apiAgents } = useGetOrchAgents();
+  const { data: apiSessions, refetch: refetchSessions } = useGetOrchSessions();
+  const { mutate: deleteSession } = useDeleteOrchSession();
+
+  const agents: Agent[] = useMemo(
+    () => (apiAgents ? mapApiAgents(apiAgents) : []),
+    [apiAgents],
+  );
+  const selectedAgent = useMemo(
+    () => agents.find((a) => a.id === selectedModelId) || agents[0],
+    [agents, selectedModelId],
+  );
+  const canInteract = permissions?.includes("interact_agents") ?? false;
+
+  // The effective session ID for fetching messages: activeSessionId is set
+  // when the user clicks a session in the sidebar.  When null (e.g. after
+  // streaming created a new session), fall back to currentSessionId if it
+  // exists in the sessions list (meaning it was persisted to the DB).
+  const effectiveSessionId = useMemo(() => {
+    if (activeSessionId) return activeSessionId;
+    if (apiSessions?.some((s) => s.session_id === currentSessionId)) return currentSessionId;
+    return null;
+  }, [activeSessionId, currentSessionId, apiSessions]);
+
+  // Load messages when switching to an existing session
+  const { data: apiSessionMessages, refetch: refetchMessages } = useGetOrchMessages(
+    { session_id: effectiveSessionId || "" },
+    {
+      enabled: !!effectiveSessionId,
+      refetchOnWindowFocus: true,
+      staleTime: 0,
+      // Prevent background polling from clobbering the local streaming placeholder/tokens.
+      refetchInterval: isSending ? false : 5000,
+    },
+  );
+
+  useEffect(() => {
+    if (apiSessionMessages && effectiveSessionId) {
+      // Keep local in-flight stream state intact for the active session.
+      if (isSending && effectiveSessionId === currentSessionId) {
+        return;
+      }
+      const mapped = mapApiMessages(apiSessionMessages);
+      setMessages(mapped);
+      setCurrentSessionId(effectiveSessionId);
+      // Reset HITL UI state only when switching sessions (not on every poll).
+      if (hitlSessionRef.current !== effectiveSessionId) {
+        setHitlDoneMap({});
+        setHitlLoadingId(null);
+        hitlSessionRef.current = effectiveSessionId;
+      }
+
+      // Sync selected model with the session's active agent
+      const sessionInfo = apiSessions?.find((s) => s.session_id === effectiveSessionId);
+      if (sessionInfo?.active_agent_name) {
+        const activeAgent = agents.find((a) => a.name === sessionInfo.active_agent_name);
+        if (activeAgent) {
+          setSelectedModelId(activeAgent.id);
+        }
+      }
+    }
+  }, [apiSessionMessages, effectiveSessionId, apiSessions, agents]);
+
+  // Fetch available models from backend
+  useEffect(() => {
+    let cancelled = false;
+    // Use native fetch to avoid axios duplicate-request interceptor
+    const modelsUrl = `${getURL("ORCHESTRATOR")}/models`;
+    const headers: Record<string, string> = {};
+    // Extract JWT from cookie (same cookie name used by axios interceptor)
+    const tokenMatch = document.cookie.match(/(?:^|;\s*)access_token_lf=([^;]*)/);
+    if (tokenMatch?.[1]) {
+      headers["Authorization"] = `Bearer ${decodeURIComponent(tokenMatch[1])}`;
+    }
+
+    fetch(modelsUrl, { headers, credentials: "include" })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data: any[]) => {
+        if (cancelled || !data) return;
+        const models: AiModelOption[] = data.map((m: any, idx: number) => ({
+          id: m.model_id,
+          name: m.display_name || m.model_name,
+          icon: resolveModelIcon(m),
+          group: (idx < 5 ? "main" : "more") as "main" | "more",
+          capabilities: m.capabilities || undefined,
+          is_default: m.is_default || false,
+        }));
+        setAiModels(models);
+      })
+      .catch((err) => {
+        console.warn("[OrchestratorChat] Failed to fetch models:", err.message);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Keep HITL status in sync when decisions happen on HITL Approvals page.
+  // This lets orchestrator chat hide the pending banner and show final status
+  // (Approved / Rejected / etc.) without requiring a full page reload.
+  useEffect(() => {
+    const hitlMsgs = messages.filter((m) => m.hitl && m.hitlThreadId);
+    if (hitlMsgs.length === 0) return;
+
+    let isMounted = true;
+    const syncStatuses = async () => {
+      try {
+        const res = await api.get(`${getURL("HITL")}/pending`, {
+          params: { status: "all" },
+        });
+        const rows: Array<{ thread_id?: string; status?: string; requested_at?: string }> = Array.isArray(res.data)
+          ? res.data
+          : [];
+
+        // Build per-thread request timelines (oldest -> newest).
+        const reqByThread = new Map<string, Array<{ status: string; requestedAt: number }>>();
+        for (const row of rows) {
+          if (!row?.thread_id || !row?.status) continue;
+          const list = reqByThread.get(row.thread_id) ?? [];
+          list.push({
+            status: row.status,
+            requestedAt: row.requested_at ? Date.parse(row.requested_at) : 0,
+          });
+          reqByThread.set(row.thread_id, list);
+        }
+        for (const list of reqByThread.values()) {
+          list.sort((a, b) => a.requestedAt - b.requestedAt);
+        }
+
+        // Build per-thread HITL message timelines in chat order.
+        const msgByThread = new Map<string, Message[]>();
+        for (const msg of hitlMsgs) {
+          const threadId = msg.hitlThreadId ?? "";
+          const list = msgByThread.get(threadId) ?? [];
+          list.push(msg);
+          msgByThread.set(threadId, list);
+        }
+
+        // Assign status to each HITL message by timeline index in the same thread.
+        const nextMap: Record<string, string> = {};
+        for (const [threadId, threadMsgs] of msgByThread.entries()) {
+          const threadReqs = reqByThread.get(threadId) ?? [];
+          for (let i = 0; i < threadMsgs.length; i++) {
+            const req = threadReqs[i];
+            if (!req) continue;
+            if (req.status.toLowerCase() !== "pending") {
+              nextMap[threadMsgs[i].id] = hitlStatusLabel(req.status);
+            }
+          }
+        }
+
+        if (!isMounted) return;
+        setHitlDoneMap(nextMap);
+      } catch {
+        // Best-effort status sync only; keep existing UI if polling fails.
+      }
+    };
+
+    syncStatuses();
+    const timer = window.setInterval(syncStatuses, 4000);
+    return () => {
+      isMounted = false;
+      window.clearInterval(timer);
+    };
+  }, [messages]);
+
+  // Set default selected model when agents load (skip if user chose "No Agent" mode)
+  useEffect(() => {
+    if (agents.length > 0 && !selectedModelId && !noAgentMode) {
+      setSelectedModelId(agents[0].id);
+    }
+  }, [agents, selectedModelId, noAgentMode]);
+
+  // Update filteredAgents when agents load
+  useEffect(() => {
+    setFilteredAgents(agents);
+  }, [agents]);
+
+  useEffect(() => {
+    // Use instant scroll while streaming so it keeps up with fast tokens;
+    // smooth scroll otherwise for a nicer UX.
+    messagesEndRef.current?.scrollIntoView({
+      behavior: isSending ? "auto" : "smooth",
+    });
+  }, [messages, isSending, streamingAgentName]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (modelPickerRef.current && !modelPickerRef.current.contains(e.target as Node)) {
+        setShowModelPicker(false);
+      }
+      if (!(e.target as Element)?.closest?.("[data-plus-menu]")) {
+        setShowPlusMenu(false);
+      }
+      if (aiModelPickerRef.current && !aiModelPickerRef.current.contains(e.target as Node)) {
+        setShowAiModelPicker(false);
+        setShowMoreModels(false);
+      }
+      // Close three-dot chat menu when clicking outside
+      if (!(e.target as Element)?.closest?.("[data-chat-menu]")) {
+        setChatMenuOpenId(null);
+      }
+      // Close suggestions when clicking outside input area
+      if (!(e.target as Element)?.closest?.("textarea")) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  /* ------------------ HELPERS ------------------ */
+
+  const timeNow = () =>
+    new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  const highlightMentions = (text: string) => {
+    // Build a regex that matches any known @agent_name (including spaces)
+    // so "@smart agent" is bolded as one unit, not just "@smart".
+    if (agents.length === 0) return [text];
+    const escaped = [...agents]
+      .sort((a, b) => b.name.length - a.name.length)
+      .map((a) => a.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const pattern = new RegExp(`(@(?:${escaped.join("|")}))`, "gi");
+    return text.split(pattern).map((part, i) =>
+      part.startsWith("@") ? (
+        <span key={i} className="font-semibold text-primary">
+          {part}
+        </span>
+      ) : (
+        part
+      )
+    );
+  };
+
+  const getAgentColor = (name?: string) => {
+    const agent = agents.find((a) => a.name === name);
+    return agent?.color || "#10a37f";
+  };
+
+  const versionBadge = (versionLabel: string) => (
+    <span className="ml-2 inline-flex items-center rounded-full border border-border bg-muted px-1.5 py-0.5 text-xxs font-semibold uppercase leading-none text-muted-foreground">
+      {versionLabel}
+    </span>
+  );
+
+  const uatBadge = (environment: string) =>
+    String(environment).toLowerCase() === "uat" ? (
+      <span className="ml-1.5 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-xxs font-semibold uppercase leading-none text-amber-700">
+        UAT
+      </span>
+    ) : null;
+
+  /* ------------------ HITL ACTION HANDLER ------------------ */
+
+  const handleHitlAction = useCallback(
+    async (msgId: string, threadId: string, action: string) => {
+      if (hitlDoneMap[msgId] || hitlLoadingId) return;
+      setHitlLoadingId(msgId);
+      setHitlLoadingAction(action);
+      try {
+        const res = await api.post(`${getURL("HITL")}/${threadId}/resume`, {
+          action,
+          feedback: "",
+          edited_value: "",
+        });
+        setHitlDoneMap((prev) => ({ ...prev, [msgId]: action }));
+
+        const resData = res.data;
+
+        if (resData?.status === "interrupted" && resData.interrupt_data) {
+          // Another HITL node was hit downstream — show new approval message
+          const newInterrupt = resData.interrupt_data;
+          const question = newInterrupt.question || "Approval required";
+          const newActions: string[] = newInterrupt.actions || [];
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              sender: "agent",
+              agentName: prev.find((m) => m.id === msgId)?.agentName,
+              content: question,
+              timestamp: timeNow(),
+              hitl: true,
+              hitlActions: newActions,
+              hitlThreadId: threadId,
+            },
+          ]);
+        } else if (resData?.status === "completed") {
+          // Graph finished — show only resumed AI output in orchestrator chat.
+          setMessages((prev) => {
+            const name = prev.find((m) => m.id === msgId)?.agentName;
+            if (!resData.output_text) return prev;
+            return [
+              ...prev,
+              {
+                id: crypto.randomUUID(),
+                sender: "agent" as const,
+                agentName: name,
+                content: resData.output_text,
+                timestamp: timeNow(),
+              },
+            ];
+          });
+          // Refetch messages from DB so the persisted orch_conversation
+          // response is available if user reloads or navigates away.
+          refetchMessages();
+        }
+      } catch (_err) {
+        // leave buttons enabled so user can retry
+      } finally {
+        setHitlLoadingId(null);
+        setHitlLoadingAction(null);
+      }
+    },
+    [hitlDoneMap, hitlLoadingId, timeNow, refetchMessages],
+  );
+
+  /* ------------------ INPUT HANDLING ------------------ */
+
+  const handleInputChange = (value: string) => {
+    setInput(value);
+    const match = value.match(/@([\w\s().-]*)$/);
+    if (match && !noAgentMode) {
+      const query = match[1].toLowerCase();
+      setFilteredAgents(agents.filter((a) => a.name.toLowerCase().includes(query)));
+      setShowMentions(true);
+    } else {
+      setShowMentions(false);
+    }
+
+    // Autocomplete suggestions — only in model mode, debounced fetch
+    if (suggestionTimerRef.current) clearTimeout(suggestionTimerRef.current);
+    setSelectedSuggestionIdx(-1);
+    if (!noAgentMode || value.trim().length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    suggestionTimerRef.current = setTimeout(() => {
+      const suggestUrl = `${getURL("ORCHESTRATOR")}/suggestions?q=${encodeURIComponent(value.trim())}`;
+      const headers: Record<string, string> = {};
+      const tokenMatch = document.cookie.match(/(?:^|;\s*)access_token_lf=([^;]*)/);
+      if (tokenMatch?.[1]) headers["Authorization"] = `Bearer ${decodeURIComponent(tokenMatch[1])}`;
+      fetch(suggestUrl, { headers, credentials: "include" })
+        .then((r) => r.ok ? r.json() : null)
+        .then((data) => {
+          const items: string[] = data?.suggestions || [];
+          setSuggestions(items);
+          setShowSuggestions(items.length > 0);
+        })
+        .catch(() => { setSuggestions([]); setShowSuggestions(false); });
+    }, 400);
+  };
+
+  const handleSelectSuggestion = (text: string) => {
+    setInput(text);
+    setSuggestions([]);
+    setShowSuggestions(false);
+    setSelectedSuggestionIdx(-1);
+    textareaRef.current?.focus();
+  };
+
+  const handleSelectAgent = (agent: Agent) => {
+    const updated = input.replace(/@[\w\s().-]*$/, `@${agent.name} `);
+    setInput(updated);
+    setSelectedModelId(agent.id);
+    setShowMentions(false);
+    textareaRef.current?.focus();
+  };
+
+  /* ------------------ SPEECH-TO-TEXT (MIC) ------------------ */
+
+  const handleMicClick = useCallback(() => {
+    // Stop listening
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+      return;
+    }
+
+    // Start listening
+    const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Speech recognition is not supported in this browser. Please use Chrome.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognitionRef.current = recognition;
+    setIsListening(true);
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setInput((prev) => (prev ? prev + " " + transcript : transcript));
+      textareaRef.current?.focus();
+    };
+
+    recognition.onerror = () => {
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.start();
+  }, [isListening]);
+
+  /* ------------------ TEXT-TO-SPEECH (SPEAKER) ------------------ */
+
+  const handleSpeak = useCallback((text: string) => {
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+
+    // If already speaking, stop
+    if (synth.speaking) {
+      synth.cancel();
+      return;
+    }
+
+    // Strip markdown for cleaner speech
+    const clean = text
+      .replace(/!\[.*?\]\(.*?\)/g, "")          // remove images
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")  // links → text
+      .replace(/[*_~`#>|\\-]{1,3}/g, "")        // remove markdown symbols
+      .replace(/```[\s\S]*?```/g, "")            // remove code blocks
+      .replace(/\n{2,}/g, ". ")                  // paragraphs → pause
+      .replace(/\n/g, " ")
+      .trim();
+
+    if (!clean) return;
+
+    const utterance = new SpeechSynthesisUtterance(clean);
+    synth.speak(utterance);
+  }, []);
+
+  /* ------------------ SEND MESSAGE ------------------ */
+
+  const handleSend = useCallback(async () => {
+    const hasFiles = uploadFiles.some((f) => f.path && !f.loading && !f.error);
+    if (!canInteract || (!input.trim() && !hasFiles) || isSending) return;
+
+    // Detect explicit @mention — auto-select the agent if user typed @agent_name
+    // Sort by name length descending so "rag agent_new" matches before "rag agent".
+    const explicitAgent = [...agents]
+      .sort((a, b) => b.name.length - a.name.length)
+      .find((a) => input.includes(`@${a.name}`));
+
+    // If user @mentioned an agent, switch out of noAgentMode and select it
+    if (explicitAgent) {
+      if (noAgentMode) setNoAgentMode(false);
+      if (explicitAgent.id !== selectedModelId) setSelectedModelId(explicitAgent.id);
+    }
+
+    // Block send when no agent or model is selected (and no @mention detected)
+    if (!explicitAgent) {
+      const needsAgent = !noAgentMode && !selectedModelId;
+      const needsModel = noAgentMode && !selectedAiModel;
+      if (needsAgent || needsModel || (!noAgentMode && agents.length === 0)) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            sender: "user" as const,
+            content: input,
+            timestamp: timeNow(),
+          },
+          {
+            id: crypto.randomUUID(),
+            sender: "agent" as const,
+            content: t("Please select an agent or model first to start chatting."),
+            timestamp: timeNow(),
+          },
+        ]);
+        setInput("");
+        return;
+      }
+    }
+
+    // Collect uploaded file paths and clear previews
+    const filePaths = uploadFiles
+      .filter((f) => f.path && !f.loading && !f.error)
+      .map((f) => f.path!);
+    setUploadFiles([]);
+
+    const fallbackAgent = selectedAgent || agents[0];
+
+    // Target agent: explicit @mention wins, otherwise use sticky (selectedModel)
+    const targetAgent = explicitAgent || fallbackAgent;
+
+    // Strip the @agent_name mention so the agent only receives the actual question
+    const escapedName = explicitAgent
+      ? explicitAgent.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      : "";
+    const cleanedInput = explicitAgent
+      ? input.replace(new RegExp(`@${escapedName}\\s*`, "g"), "").trim()
+      : input.trim();
+
+    // Agent message placeholder — created upfront so "Thinking..." shows inside the bubble
+    const agentMsgId = crypto.randomUUID();
+    setStreamingMsgId(agentMsgId);
+
+    // Determine display name for the responding entity
+    const responderName = (noAgentMode && selectedAiModel)
+      ? (aiModels.find((m) => m.id === selectedAiModel)?.name || "AI Model")
+      : targetAgent.name;
+
+    // Add both user message AND agent "thinking" placeholder.
+    // flushSync commits the DOM update synchronously, then we await a
+    // double-rAF to guarantee the browser has actually painted the
+    // "Thinking..." indicator before the network request begins.
+    const userMessage: Message = {
+      id: crypto.randomUUID(),
+      sender: "user",
+      content: input,
+      timestamp: timeNow(),
+      files: filePaths.length > 0 ? filePaths : undefined,
+      canvasEnabled: isCanvasEnabled || undefined,
+    };
+    flushSync(() => {
+      setMessages((prev) => [
+        ...prev,
+        userMessage,
+        {
+          id: agentMsgId,
+          sender: "agent" as const,
+          agentName: responderName,
+          content: "",  // empty = "Thinking..." state
+          timestamp: timeNow(),
+        },
+      ]);
+      setInput("");
+      setShowMentions(false);
+      setIsSending(true);
+      setStreamingAgentName(responderName);
+    });
+
+    // Wait for the browser to actually paint the thinking state.
+    // Double-rAF: first rAF fires before paint, second fires after paint.
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+
+    let accumulated = "";
+    let accumulatedReasoning = "";
+    let rafHandle: number | null = null;
+    let pendingContent: string | null = null;
+    let hitlPauseReceived = false;
+    let receivedToken = false;
+    let latestAgentAddMessageText = "";
+
+    // Flush the latest accumulated content to React state.
+    // Called inside a rAF so we update at most once per frame (~60fps),
+    // keeping the UI responsive while still showing progressive tokens.
+    const flushToReact = () => {
+      rafHandle = null;
+      if (pendingContent === null) return;
+      const content = pendingContent;
+      const reasoning = accumulatedReasoning || undefined;
+      pendingContent = null;
+      flushSync(() => {
+        setStreamingAgentName("");
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === agentMsgId ? { ...m, content, reasoningContent: reasoning } : m,
+          ),
+        );
+      });
+    };
+
+    // Helper: update the agent message bubble content.
+    // Tokens arrive very rapidly; we accumulate them and schedule
+    // a single React update per animation frame to stay smooth.
+    const updateAgentMsg = (content: string, immediate = false) => {
+      accumulated = content;
+      if (immediate) {
+        // For final/error updates, flush synchronously
+        if (rafHandle !== null) { cancelAnimationFrame(rafHandle); rafHandle = null; }
+        pendingContent = null;
+        const reasoning = accumulatedReasoning || undefined;
+        flushSync(() => {
+          setStreamingAgentName("");
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === agentMsgId ? { ...m, content, reasoningContent: reasoning } : m,
+            ),
+          );
+        });
+        return;
+      }
+      pendingContent = content;
+      if (rafHandle === null) {
+        rafHandle = requestAnimationFrame(flushToReact);
+      }
+    };
+
+    // Build request body: @agent mode sends agent_id, model mode sends model_id.
+    const requestBody: any = {
+      session_id: currentSessionId,
+      input_value: cleanedInput,
+    };
+
+    if (explicitAgent || !noAgentMode) {
+      // Agent mode: send agent details
+      requestBody.agent_id = targetAgent.agent_id;
+      requestBody.deployment_id = targetAgent.deploy_id;
+      requestBody.version_number = targetAgent.version_number;
+      requestBody.env = targetAgent.environment || "uat";
+    } else if (noAgentMode && selectedAiModel) {
+      // Model mode: send model_id (UUID from registry)
+      requestBody.model_id = selectedAiModel;
+    }
+
+    // Send COT reasoning preference
+    if (cotReasoning) {
+      requestBody.enable_reasoning = true;
+    }
+
+    if (filePaths.length > 0) {
+      requestBody.files = filePaths;
+    }
+    console.log("[OrchestratorChat] Request body:", JSON.stringify(requestBody), "| filePaths:", filePaths, "| uploadFiles:", uploadFiles.map(f => ({id: f.id, path: f.path, loading: f.loading, error: f.error})));
+
+    const buildController = new AbortController();
+
+    try {
+      await performStreamingRequest({
+        method: "POST",
+        url: `${getURL("ORCHESTRATOR")}/chat/stream`,
+        body: requestBody,
+        buildController,
+        onData: async (event: any) => {
+          const eventType: string = event?.event;
+          const data: any = event?.data;
+
+          const isHitlEvent =
+            eventType === "add_message" &&
+            (
+              !!data?.properties?.hitl ||
+              inferHitlFromText(String(data?.text || data?.message || ""))
+            );
+
+          if (isHitlEvent) {
+            // HITL pause event — update agent message with HITL metadata
+            // so the UI renders approval action buttons.
+            hitlPauseReceived = true;
+            const actions: string[] = Array.isArray(data?.properties?.actions)
+              ? data.properties.actions
+              : extractHitlActions(String(data?.text || data?.message || ""));
+            const threadId: string = data?.properties?.thread_id ?? currentSessionId ?? "";
+            const hitlText: string = data.text || data.message || "";
+            const isDeployedRun: boolean = data?.properties?.is_deployed_run ?? true;
+            flushSync(() => {
+              setStreamingAgentName("");
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === agentMsgId
+                    ? {
+                        ...m,
+                        content: hitlText,
+                        hitl: true,
+                        hitlActions: actions,
+                        hitlThreadId: threadId,
+                        hitlIsDeployed: isDeployedRun,
+                      }
+                    : m,
+                ),
+              );
+            });
+            // Don't return false — let the stream continue to consume
+            // remaining events (end_vertex, end).
+          } else if (eventType === "add_message" && data?.content_blocks?.length) {
+            // Only show content_blocks that contain actual tool calls.
+            // Each flow node (Chat Input, Worker Node, Chat Output) sends its
+            // own add_message event; pipeline nodes only carry plain text steps
+            // which would appear as duplicate Input/Output entries. Filtering
+            // to tool_use blocks means we only show meaningful agent reasoning.
+            const toolBlocks = data.content_blocks.filter((block: any) =>
+              block.contents?.some((c: any) => c.type === "tool_use"),
+            );
+            if (toolBlocks.length > 0) {
+              flushSync(() => {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === agentMsgId
+                      ? {
+                          ...m,
+                          // Replace (not append) — each add_message is a
+                          // progressive update of the same Worker Node message
+                          // (Accessing → Executed), not a new block.
+                          contentBlocks: toolBlocks,
+                          blocksState: "partial",
+                        }
+                      : m,
+                  ),
+                );
+              });
+            }
+          } else if (eventType === "add_message" && (data?.text || data?.message) && !hitlPauseReceived) {
+            // Keep add_message text as a fallback, but don't immediately overwrite
+            // the thinking bubble. Some graphs emit user/input-node add_message
+            // events before AI tokens; rendering those here causes echo + no stream UX.
+            const sender = String(data?.sender || data?.sender_name || "").toLowerCase();
+            const isUserMessage = sender.includes("user");
+            const addMessageText = String(data.text || data.message || "");
+            if (!isUserMessage && addMessageText.trim()) {
+              latestAgentAddMessageText = addMessageText;
+            }
+          } else if (eventType === "token" && data?.chunk) {
+            // Progressive streaming — append each token chunk (throttled)
+            receivedToken = true;
+            if (data.type === "reasoning") {
+              // CoT reasoning chunk — accumulate separately
+              accumulatedReasoning += data.chunk;
+              updateAgentMsg(accumulated); // trigger re-render to show reasoning
+            } else {
+              accumulated += data.chunk;
+              updateAgentMsg(accumulated);
+            }
+          } else if (eventType === "error") {
+            updateAgentMsg(data?.text || "An error occurred", true);
+            return false;
+          } else if (eventType === "end") {
+            // Capture reasoning from end event if provided
+            if (data?.reasoning_content) {
+              accumulatedReasoning = data.reasoning_content;
+            }
+            // End event carries the final complete text — flush immediately.
+            // BUT: if we received a HITL pause, do NOT overwrite the HITL
+            // message with agent_text — the action buttons must stay visible.
+            if (data?.agent_text && !hitlPauseReceived) {
+              updateAgentMsg(data.agent_text, true);
+            } else if (!hitlPauseReceived && !receivedToken && latestAgentAddMessageText.trim()) {
+              // Fallback for non-token flows where response text came only via
+              // add_message and end has no agent_text payload.
+              updateAgentMsg(latestAgentAddMessageText, true);
+            }
+            // Mark content blocks as fully finished
+            if (!hitlPauseReceived) {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === agentMsgId && m.contentBlocks?.length
+                    ? { ...m, blocksState: "complete" }
+                    : m,
+                ),
+              );
+            }
+            refetchSessions();
+            // Force a fast message sync for existing sessions so local streamed
+            // content is not replaced by stale polled data.
+            if (effectiveSessionId) {
+              refetchMessages();
+            }
+            return false;
+          }
+          return true;
+        },
+        onError: (statusCode) => {
+          updateAgentMsg(`Error: server returned ${statusCode}`, true);
+        },
+        onNetworkError: (error) => {
+          if (error.name !== "AbortError") {
+            updateAgentMsg("Sorry, something went wrong. Please try again.", true);
+          }
+        },
+      });
+    } catch {
+      if (!accumulated) {
+        updateAgentMsg("Sorry, something went wrong. Please try again.", true);
+      }
+    } finally {
+      // Flush any remaining buffered content and clean up
+      if (rafHandle !== null) { cancelAnimationFrame(rafHandle); rafHandle = null; }
+      if (pendingContent !== null) {
+        const finalContent = pendingContent;
+        pendingContent = null;
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === agentMsgId ? { ...m, content: finalContent } : m,
+          ),
+        );
+      } else if (!hitlPauseReceived && !receivedToken && latestAgentAddMessageText.trim()) {
+        // Defensive fallback if stream closes before we get a parsable end event.
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === agentMsgId ? { ...m, content: latestAgentAddMessageText } : m,
+          ),
+        );
+      }
+      setIsSending(false);
+      setStreamingAgentName("");
+      setStreamingMsgId(null);
+    }
+  }, [canInteract, input, isSending, agents, selectedAgent, selectedModelId, noAgentMode, selectedAiModel, currentSessionId, effectiveSessionId, refetchSessions, refetchMessages]);
+
+  /* ------------------ SESSION MANAGEMENT ------------------ */
+
+  const handleNewChat = () => {
+    setCurrentSessionId(crypto.randomUUID());
+    setActiveSessionId(null);
+    setMessages([]);
+    setSelectedModelId("");
+    setNoAgentMode(true);
+    setShowImageGallery(false);
+  };
+
+  const handleSelectSession = (sessionId: string) => {
+    setActiveSessionId(sessionId);
+    setShowImageGallery(false);
+  };
+
+  const handleDeleteSession = (sessionId: string) => {
+    deleteSession(
+      { session_id: sessionId },
+      {
+        onSuccess: () => {
+          if (currentSessionId === sessionId) {
+            handleNewChat();
+          }
+          refetchSessions();
+        },
+      },
+    );
+  };
+
+  const handleArchiveSession = async (sessionId: string, isArchived: boolean) => {
+    try {
+      await api.post(`${getURL("ORCHESTRATOR")}/sessions/${sessionId}/archive`, {
+        is_archived: isArchived,
+      });
+      if (currentSessionId === sessionId && isArchived) {
+        handleNewChat();
+      }
+      refetchSessions();
+    } catch (err) {
+      console.error("Failed to archive session:", err);
+    }
+  };
+
+  /* ---- group chat history by date ---- */
+  const activeSessions = useMemo(
+    () => (apiSessions || []).filter((s) => !s.is_archived),
+    [apiSessions],
+  );
+  const archivedSessions = useMemo(
+    () => (apiSessions || []).filter((s) => s.is_archived),
+    [apiSessions],
+  );
+
+  // Filter sessions by search query (matches preview text)
+  const filteredActiveSessions = useMemo(() => {
+    const q = sidebarSearchQuery.trim().toLowerCase();
+    if (!q) return activeSessions;
+    return activeSessions.filter(
+      (s) =>
+        (s.preview || "").toLowerCase().includes(q) ||
+        (s.active_agent_name || "").toLowerCase().includes(q),
+    );
+  }, [activeSessions, sidebarSearchQuery]);
+
+  const filteredArchivedSessions = useMemo(() => {
+    const q = sidebarSearchQuery.trim().toLowerCase();
+    if (!q) return archivedSessions;
+    return archivedSessions.filter(
+      (s) =>
+        (s.preview || "").toLowerCase().includes(q) ||
+        (s.active_agent_name || "").toLowerCase().includes(q),
+    );
+  }, [archivedSessions, sidebarSearchQuery]);
+
+  const grouped = useMemo(
+    () => groupSessionsByDate(filteredActiveSessions, t),
+    [filteredActiveSessions, t],
+  );
+  const groupedArchived = useMemo(
+    () => groupSessionsByDate(filteredArchivedSessions, t),
+    [filteredArchivedSessions, t],
+  );
+
+  /* ------------------ RENDER ------------------ */
+
+  return (
+    <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
+      {/* ================ SIDEBAR ================ */}
+      <div
+        className={`flex flex-col overflow-hidden border-r border-border bg-muted transition-all duration-200 ${
+          sidebarOpen ? "w-64 min-w-[16rem]" : "w-0 min-w-0"
+        }`}
+      >
+        {/* Sidebar Header */}
+        <div className="flex items-center justify-between p-3">
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="flex items-center rounded-md p-1.5 text-muted-foreground hover:bg-accent"
+          >
+            <PanelLeftClose size={18} />
+          </button>
+        </div>
+
+        {/* ---- Single scrollable region containing nav + apps + info + agents.
+              Without this, expanding "Chat history" pushed the Applications
+              and Agents sections off-screen because the sidebar itself is
+              overflow-hidden. */}
+        <div
+          className="flex min-h-0 flex-1 flex-col overflow-y-auto scroll-smooth"
+          style={{ scrollbarWidth: "thin" }}
+        >
+        {/* ---- Addon: Sidebar Navigation Items ---- */}
+        <div className="flex flex-col gap-0.5 px-2 pb-2">
+          {/* New chat */}
+          <button
+            onClick={() => {
+              // Close any inline panel (NotebookLM / Image gallery) first,
+              // otherwise the chat view stays hidden behind them and the
+              // click silently does nothing from the user's POV.
+              setShowNotebookLM(false);
+              setShowImageGallery(false);
+              handleNewChat();
+            }}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
+          >
+            <SquarePen size={16} className="shrink-0 text-muted-foreground" />
+            <span>{t("New chat")}</span>
+          </button>
+
+          {/* Search chats */}
+          <button
+            onClick={() => {
+              setShowSearchInput(true);
+              setSidebarSearchQuery("");
+            }}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
+          >
+            <Search size={16} className="shrink-0 text-muted-foreground" />
+            <span>{t("Search chats")}</span>
+          </button>
+
+          {/* Search overlay */}
+          {showSearchInput && (
+            <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 pt-[10vh]" onClick={() => { setShowSearchInput(false); setSidebarSearchQuery(""); }}>
+              <div
+                className="w-full max-w-lg rounded-xl bg-background shadow-2xl border border-border"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Search input header */}
+                <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+                  <input
+                    type="text"
+                    value={sidebarSearchQuery}
+                    onChange={(e) => setSidebarSearchQuery(e.target.value)}
+                    placeholder={t("Search chats...")}
+                    className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+                    autoFocus
                   />
-                  {/* Index dot */}
-                  <div
-                    className="mb-3 flex h-6 w-6 items-center justify-center rounded-full text-xxs font-bold text-white"
-                    style={{ backgroundColor: theme.accent + "cc" }}
+                  <button
+                    onClick={() => { setShowSearchInput(false); setSidebarSearchQuery(""); }}
+                    className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
                   >
-                    {i + 1}
+                    <X size={16} />
+                  </button>
+                </div>
+
+                {/* New chat button */}
+                <button
+                  onClick={() => { setShowSearchInput(false); setSidebarSearchQuery(""); handleNewChat(); }}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-sm font-medium text-foreground hover:bg-accent"
+                >
+                  <SquarePen size={16} className="shrink-0 text-muted-foreground" />
+                  <span>{t("New-chat")}</span>
+                </button>
+
+                {/* Recent sessions list */}
+                <div className="max-h-[50vh] overflow-y-auto px-2 pb-3" style={{ scrollbarWidth: "thin" }}>
+                  {Object.entries(grouped).length === 0 && sidebarSearchQuery.trim() ? (
+                    <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+                      {t("No matching chats")}
+                    </div>
+                  ) : (
+                    Object.entries(grouped).map(([date, chats]) => (
+                      <div key={date} className="mb-1">
+                        <div className="px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          {date}
+                        </div>
+                        {chats.map((chat) => (
+                          <button
+                            key={chat.session_id}
+                            onClick={() => { setShowSearchInput(false); setSidebarSearchQuery(""); handleSelectSession(chat.session_id); }}
+                            className={`flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-accent ${
+                              currentSessionId === chat.session_id ? "bg-accent" : ""
+                            }`}
+                          >
+                            <MessageSquare size={14} className="mt-0.5 shrink-0 opacity-50" />
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate font-medium text-foreground">
+                                {chat.active_agent_name || t("Chat")}
+                                {chat.active_agent_name ? ` - ${chat.active_agent_name}` : ""}
+                              </div>
+                              <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                                {chat.preview || t("New conversation")}
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Image — toggles gallery view in main area */}
+          <button
+            onClick={() => {
+              setShowImageGallery(!showImageGallery);
+              setShowNotebookLM(false);
+            }}
+            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent ${showImageGallery ? "bg-accent" : ""}`}
+          >
+            <Image size={16} className="shrink-0 text-muted-foreground" />
+            <span>{t("Image")}</span>
+          </button>
+
+          {/* Chat history (collapsible) — contains all conversations */}
+          <button
+            onClick={() => setShowChatHistoryExpand(!showChatHistoryExpand)}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
+          >
+            <Globe size={16} className="shrink-0 text-muted-foreground" />
+            <span className="flex-1 text-left">{t("Chat history")}</span>
+            <ChevronRight size={14} className={`text-muted-foreground transition-transform ${showChatHistoryExpand ? "rotate-90" : ""}`} />
+          </button>
+          {showChatHistoryExpand && (
+            <div className="ml-4 border-l border-border pl-1">
+              {Object.entries(grouped).map(([date, chats]) => (
+                <div key={date} className="mb-2">
+                  <div className="px-3 pb-1 pt-2 text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {date}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-xxs uppercase tracking-widest text-muted-foreground leading-snug font-medium">
-                      {t(kpi.name)}
-                    </p>
-                    {kpi.scope === "global" && (
-                      <span className="rounded-full border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-xxs font-bold uppercase tracking-wide text-sky-700">
-                        Global
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-2 text-2xl font-bold text-foreground leading-none tracking-tight">
-                    {kpi.value}
-                  </p>
-                  {/* subtle bg glow */}
-                  <div
-                    className="pointer-events-none absolute -right-4 -bottom-4 h-16 w-16 rounded-full opacity-[0.05] group-hover:opacity-[0.10] transition-opacity"
-                    style={{ backgroundColor: theme.accent }}
-                  />
+                  {chats.map((chat) => (
+                    <div
+                      key={chat.session_id}
+                      className="group relative flex items-center"
+                    >
+                      <button
+                        onClick={() => handleSelectSession(chat.session_id)}
+                        className={`flex min-w-0 flex-1 items-center gap-2 truncate rounded-lg px-3 py-2 pr-8 text-left text-sm text-foreground hover:bg-accent ${
+                          currentSessionId === chat.session_id ? "bg-accent" : ""
+                        }`}
+                      >
+                        <MessageSquare size={14} className="shrink-0 opacity-50" />
+                        <span className="truncate">{chat.preview || t("New conversation")}</span>
+                      </button>
+                      {/* Three-dot menu button — visible on hover */}
+                      <button
+                        data-chat-menu
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (chatMenuOpenId === chat.session_id) {
+                            setChatMenuOpenId(null);
+                          } else {
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            setChatMenuPos({ top: rect.bottom + 4, left: rect.right - 140 });
+                            setChatMenuOpenId(chat.session_id);
+                          }
+                        }}
+                        className="invisible absolute right-1 shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground group-hover:visible"
+                        title={t("Options")}
+                      >
+                        <MoreVertical size={14} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
           )}
 
-          
-
-          {/* Charts */}
-          {charts.length > 0 && (
-            <>
-              {/* Divider with label */}
-              <div className="mt-6 mb-4 flex items-center gap-3">
-                <div className="h-px flex-1 bg-border" />
-                <span className="text-xxs font-semibold uppercase tracking-widest text-muted-foreground">
-                  Charts
-                </span>
-                <div className="h-px flex-1 bg-border" />
-              </div>
-
-              <div className={`grid grid-cols-1 gap-4 ${charts.length === 1 ? "lg:grid-cols-2" : "lg:grid-cols-2 xl:grid-cols-3"}`}>
-                {charts.map((chart) => {
-                  const isApprovalChart = section.id === "approval" && chart.title === "Pending Approvals";
-                  const isHitlChart = section.id === "hitl" && (chart.title === "Invocation Rate" || chart.title === "Response Time");
-                  const isCostChart = section.id === "cost" && chart.title === "Monthly Cost Trend";
-                  return (
-                    <div
-                      key={chart.title}
-                      className="overflow-hidden rounded-xl border border-border bg-background shadow-sm"
-                    >
-                      {/* Chart header strip */}
-                      <div
-                        className="flex items-center justify-between px-4 py-3 border-b border-border"
-                        style={{ backgroundColor: theme.accent + "0d" }}
-                      >
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm font-semibold text-foreground leading-tight truncate">
-                              {t(chart.title)}
-                            </p>
-                            {chart.scope === "global" && (
-                              <span className="rounded-full border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-xxs font-bold uppercase tracking-wide text-sky-700">
-                                Global
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xxs text-muted-foreground mt-0.5">{t(chart.subtitle)}</p>
-                        </div>
-                        <div className="shrink-0 ml-3">
-                          {isApprovalChart && approvalRangeSelector}
-                          {isHitlChart && hitlRangeSelector}
-                          {isCostChart && costRangeSelector}
-                          {!isApprovalChart && !isHitlChart && !isCostChart && (
-                            <div
-                              className="rounded-lg p-1.5"
-                              style={{ backgroundColor: theme.accent + "1a" }}
-                            >
-                              {chart.type === "line" || chart.type === "area"
-                                ? <LineChart className="h-3.5 w-3.5" style={{ color: theme.accent }} />
-                                : chart.type === "bar"
-                                  ? <BarChart3 className="h-3.5 w-3.5" style={{ color: theme.accent }} />
-                                  : <Activity className="h-3.5 w-3.5" style={{ color: theme.accent }} />}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      {/* Chart body */}
-                      <div className="p-4">
-                        <ChartBlock chart={chart} accentColor={theme.accent} />
-                      </div>
+          {/* Archive Chat (collapsible) */}
+          <button
+            onClick={() => setShowArchiveChatExpand(!showArchiveChatExpand)}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
+          >
+            <Archive size={16} className="shrink-0 text-muted-foreground" />
+            <span className="flex-1 text-left">{t("Archive Chat")}</span>
+            <ChevronRight size={14} className={`text-muted-foreground transition-transform ${showArchiveChatExpand ? "rotate-90" : ""}`} />
+          </button>
+          {showArchiveChatExpand && (
+            <div className="ml-4 border-l border-border pl-1">
+              {archivedSessions.length === 0 ? (
+                <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                  {t("No archived chats")}
+                </div>
+              ) : (
+                Object.entries(groupedArchived).map(([date, chats]) => (
+                  <div key={date} className="mb-2">
+                    <div className="px-3 pb-1 pt-2 text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {date}
                     </div>
-                  );
-                })}
-              </div>
-            </>
+                    {chats.map((chat) => (
+                      <div
+                        key={chat.session_id}
+                        className="group relative flex items-center"
+                      >
+                        <button
+                          onClick={() => handleSelectSession(chat.session_id)}
+                          className={`flex min-w-0 flex-1 items-center gap-2 truncate rounded-lg px-3 py-2 pr-8 text-left text-sm text-muted-foreground hover:bg-accent ${
+                            currentSessionId === chat.session_id ? "bg-accent" : ""
+                          }`}
+                        >
+                          <Archive size={14} className="shrink-0 opacity-50" />
+                          <span className="truncate">{chat.preview || t("New conversation")}</span>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleArchiveSession(chat.session_id, false);
+                          }}
+                          className="invisible absolute right-1 shrink-0 rounded p-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground group-hover:visible"
+                          title={t("Unarchive")}
+                        >
+                          <ArrowLeft size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ))
+              )}
+            </div>
           )}
         </div>
-      )}
-    </div>
-  );
-}
 
-// --- Main Component --------------------------------------------------------
+        {/* ---- Addon: Applications Section ---- */}
+        <div className="border-t border-border px-2 pb-2 pt-2">
+          <div className="px-3 pb-1 text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+            {t("Applications")}
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <button
+              onClick={() => window.open("https://translator.motherson.com", "_blank")}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
+            >
+              <Globe size={16} className="shrink-0 text-blue-500" />
+              <span>{t("AI Translator")}</span>
+            </button>
+            <button
+              onClick={() => window.open("https://genai.motherson.com/do33", "_blank")}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
+            >
+              <Image size={16} className="shrink-0 text-green-500" />
+              <span>{t("DO33")}</span>
+            </button>
+            <button
+              onClick={() => {
+                setShowNotebookLM(true);
+                setShowImageGallery(false);
+              }}
+              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent ${showNotebookLM ? "bg-accent" : ""}`}
+            >
+              <Headphones size={16} className="shrink-0 text-red-500" />
+              <span>{t("NotebookLM")}</span>
+            </button>
+          </div>
+        </div>
 
-export default function DashboardAdmin(): JSX.Element {
-  const { t } = useTranslation();
-  const { role, userData } = useContext(AuthContext);
-  const normalizedRole = (role ?? "").toLowerCase().trim().replace(/\s+/g, "_");
-  const isDepartmentAdmin = normalizedRole === "department_admin";
-  const isDeveloper       = normalizedRole === "developer";
-  const isBusinessUser    = normalizedRole === "business_user";
-  const isRootAdmin       = normalizedRole === "root";
-  const isSuperAdmin      = normalizedRole === "super_admin";
-  const isLeaderExecutive = normalizedRole === "leader_executive";
+        {/* ---- Addon: Information & Help (wired same as MiBuddy) ----
+              Information → opens the MiBuddy user-manual PDF in a new tab.
+              Help → opens the user's mail client pre-populated to the
+              MiBuddy support distribution lists. */}
+        <div className="border-t border-border px-2 pb-3 pt-2">
+          <button
+            onClick={() =>
+              window.open(
+                "https://mibuddystorageaccount.blob.core.windows.net/genieusermanual/MIBuddyusermanual.pdf",
+                "_blank",
+              )
+            }
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
+          >
+            <Info size={16} className="shrink-0 text-muted-foreground" />
+            <span>{t("Information")}</span>
+          </button>
+          <button
+            onClick={() => {
+              const subject = encodeURIComponent(
+                "MiBuddy : Please detail the support required",
+              );
+              window.location.href = `mailto:support.mtsl@motherson.com,MiBuddy.Feedback@motherson.com?subject=${subject}`;
+            }}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
+          >
+            <HelpCircle size={16} className="shrink-0 text-muted-foreground" />
+            <span>{t("Help")}</span>
+          </button>
+        </div>
 
-  // ── Region selector (root admin only) ──────────────────────────────────
-  const regions = useRegionStore((s) => s.regions);
-  const selectedRegionCode = useRegionStore((s) => s.selectedRegionCode);
-  const setSelectedRegion = useRegionStore((s) => s.setSelectedRegion);
-  const fetchRegions = useRegionStore((s) => s.fetchRegions);
-
-  useEffect(() => {
-    if (isRootAdmin) {
-      fetchRegions();
-    }
-  }, [isRootAdmin]);
-
-  // Helper: build axios config with region header
-  const regionHeaders = useMemo(() => {
-    if (!isRootAdmin || !selectedRegionCode) return {};
-    return { "X-Region-Code": selectedRegionCode };
-  }, [isRootAdmin, selectedRegionCode]);
-
-  const regionConfig = useMemo(() => {
-    if (!isRootAdmin || !selectedRegionCode) return undefined;
-    return { headers: regionHeaders };
-  }, [isRootAdmin, selectedRegionCode, regionHeaders]);
-
-  const isRemoteRegion = useMemo(() => {
-    if (!selectedRegionCode || !regions.length) return false;
-    const hub = regions.find((r) => r.is_hub);
-    return hub ? hub.code !== selectedRegionCode : false;
-  }, [selectedRegionCode, regions]);
-
-  const [lifecycleKpis, setLifecycleKpis]         = useState<SectionKpi[] | null>(null);
-  const [governanceKpis, setGovernanceKpis]         = useState<SectionKpi[] | null>(null);
-  const [deptUsageKpis, setDeptUsageKpis]           = useState<SectionKpi[] | null>(null);
-  const [deptApprovalKpis, setDeptApprovalKpis]     = useState<SectionKpi[] | null>(null);
-  const [deptResponseTimeSeries, setDeptResponseTimeSeries] = useState<PendingSeriesPoint[] | null>(null);
-  const [approvalRange, setApprovalRange]           = useState<"7d" | "30d" | "12w">("7d");
-  const [approvalPendingSeries, setApprovalPendingSeries] = useState<PendingSeriesPoint[] | null>(null);
-  const [refreshTick, setRefreshTick]               = useState(0);
-  const [deptHitlKpis, setDeptHitlKpis]             = useState<SectionKpi[] | null>(null);
-  const [hitlRange, setHitlRange]                   = useState<"7d" | "30d" | "12w">("7d");
-  const [hitlInvocationSeries, setHitlInvocationSeries] = useState<PendingSeriesPoint[] | null>(null);
-  const [hitlResponseSeries, setHitlResponseSeries] = useState<PendingSeriesPoint[] | null>(null);
-  const tzOffsetMinutes = useMemo(() => -new Date().getTimezoneOffset(), []);
-  const [devCodeKpis, setDevCodeKpis]               = useState<SectionKpi[] | null>(null);
-  const [businessMaturityKpis, setBusinessMaturityKpis] = useState<SectionKpi[] | null>(null);
-  const [rootMaturityKpis, setRootMaturityKpis]     = useState<SectionKpi[] | null>(null);
-  const [platformKpis, setPlatformKpis]             = useState<SectionKpi[] | null>(null);
-  const [platformLatencySeries, setPlatformLatencySeries] = useState<Array<{ label: string; ts: number; p95?: number; p99?: number }> | null>(null);
-  const [platformErrorSeries, setPlatformErrorSeries]     = useState<Array<{ label: string; ts: number; value?: number }> | null>(null);
-  const [platformCpuMemSeries, setPlatformCpuMemSeries]   = useState<Array<{ label: string; ts: number; cpu?: number; memory?: number }> | null>(null);
-  const [devPerformanceKpis, setDevPerformanceKpis] = useState<SectionKpi[] | null>(null);
-  const [devLatencySeries, setDevLatencySeries]     = useState<Array<{ label: string; p95?: number; p99?: number }> | null>(null);
-  const [businessExperienceKpis, setBusinessExperienceKpis] = useState<SectionKpi[] | null>(null);
-  const [businessResponseTimeSeries, setBusinessResponseTimeSeries] = useState<PendingSeriesPoint[] | null>(null);
-  const [costKpis, setCostKpis]                           = useState<SectionKpi[] | null>(null);
-  const [costRange, setCostRange]                         = useState<"30d" | "90d">("30d");
-  const [costTrendSeries, setCostTrendSeries]             = useState<PendingSeriesPoint[] | null>(null);
-
-  // Fallbacks
-  const lifecycleKpiFallback:   SectionKpi[] = [{ name: "Agents in UAT", value: "0" }, { name: "UAT to PROD Conversion Rate", value: "0%" }, { name: "Deprecated Agent Count", value: "0" }];
-  const governanceKpiFallback:  SectionKpi[] = [{ name: "Guardrail Violation Rate", value: "0%" }, { name: "Escalation to Human Review", value: "0" }, { name: "% Agents Without Guardrails", value: "0%" }];
-  const deptUsageKpiFallback:   SectionKpi[] = [{ name: "Active Agents in Dept (UAT)", value: "0" }, { name: "Active Agents in Dept (PROD)", value: "0" }, { name: "Avg Response Time", value: "0ms" }];
-  const deptApprovalKpiFallback:SectionKpi[] = [{ name: "Pending Approvals", value: "0" }, { name: "Rejection Rate", value: "0%" }, { name: "Avg Approval Time", value: "0min" }];
-  const deptHitlKpiFallback:    SectionKpi[] = [{ name: "Agents with HITL", value: "0" }, { name: "HITL Invocation Rate", value: "0%" }, { name: "Avg HITL Response Time", value: "0min" }];
-  const devCodeKpiFallback:     SectionKpi[] = [{ name: "Avg. Version Count of Agents", value: "0" }];
-  const businessMaturityFallback:SectionKpi[]= [{ name: "% Agents with Guardrails", value: "0%" }, { name: "% Agents with RAG", value: "0%" }, { name: "% Agents with HITL", value: "0%" }];
-  const rootMaturityFallback:   SectionKpi[] = [{ name: "% Agents with Guardrails", value: "0%" }, { name: "% Agents with RAG", value: "0%" }, { name: "% Agents with HITL", value: "0%" }];
-  const platformKpiFallback:    SectionKpi[] = [{ name: "Platform Uptime %", value: "0%" }, { name: "API Latency P95", value: "0ms" }, { name: "API Latency P99", value: "0ms" }, { name: "Error Rate %", value: "0%" }, { name: "AKS Pod Scaling Events", value: "0" }, { name: "CPU/Memory Saturation %", value: "0%" }, { name: "Total Agent Runs", value: "0" }, { name: "Failed Agent Runs", value: "0" }, { name: "Execution Failure Rate", value: "0%" }];
-  const costKpiFallback:        SectionKpi[] = [{ name: "Total Cost", value: "$0.00" }, { name: "Avg Cost Per Run", value: "$0.00" }];
-  const devPerformanceFallback: SectionKpi[] = [{ name: "Avg Agent Latency", value: "0ms" }, { name: "Latency P95", value: "0ms" }, { name: "Latency P99", value: "0ms" }];
-  const businessExperienceFallback:SectionKpi[]=[{ name: "Avg Response Time", value: "0ms" }, { name: "Avg Session Duration", value: "0ms" }, { name: "Escalation to Human", value: "0" }, { name: "User Satisfaction Score", value: "0" }];
-  const approvalRangeOptions = [{ value: "7d", label: "Last 7 days" }, { value: "30d", label: "Last 30 days" }, { value: "12w", label: "Last 12 weeks" }];
-
-  useEffect(() => { const id = setInterval(() => setRefreshTick((t) => t + 1), 15000); return () => clearInterval(id); }, []);
-
-  // ── All API calls preserved exactly from original ──────────────────────
-  useEffect(() => { if (!isSuperAdmin && !isRootAdmin) return; const orgId = userData?.organization_id || null; const p: any = { ...(regionConfig || {}), params: orgId ? { org_id: orgId } : undefined }; api.get<DashboardSectionApiResponse>("/api/dashboard/sections/environment-lifecycle", p).then((r) => setLifecycleKpis(r.data?.kpis?.map((k) => ({ name: k.label, value: k.unit ? `${k.value}${k.unit}` : `${k.value}` })) ?? lifecycleKpiFallback)).catch(() => setLifecycleKpis(lifecycleKpiFallback)); }, [isSuperAdmin, isRootAdmin, refreshTick, userData?.organization_id, selectedRegionCode]);
-  useEffect(() => {
-    if (!isSuperAdmin) return;
-    const gv = (p: any) => { const r = p?.data?.result; const v = Array.isArray(r) && r.length > 0 ? r[0]?.value?.[1] : null; const n = v != null ? Number(v) : null; return Number.isFinite(n) ? n : null; };
-    const gsv = (sp: any, label: string) => { const s = sp?.series ?? []; const e = s.find((x: any) => x?.label === label); return (e?.prometheus?.data?.result?.[0]?.values ?? []).map((v: any) => Number(v?.[1] ?? 0)).filter((v: any) => Number.isFinite(v)); };
-    const latestSeriesValue = (sp: any, label: string) => { const vals = gsv(sp, label); return vals.length ? vals[vals.length - 1] : null; };
-    const now = Math.floor(Date.now() / 1000); const start = now - 86400;
-    Promise.all([api.get(`/api/metrics-dashboard/query-preset/platform_uptime`), api.get(`/api/metrics-dashboard/query-preset/api_latency_p95`), api.get(`/api/metrics-dashboard/query-preset/api_latency_p99`), api.get(`/api/metrics-dashboard/query-preset/error_rate`), api.get(`/api/metrics-dashboard/query-preset/cpu_saturation`), api.get(`/api/metrics-dashboard/query-preset/memory_saturation`), api.get(`/api/metrics-dashboard/query-preset-range/pod_scaling_activity`, { params: { start, end: now, step: "3600s" } }), api.get(`/api/metrics-dashboard/query-preset-range/cpu_memory_saturation`, { params: { start, end: now, step: "120s" } })])
-      .then(([u, p95, p99, er, cpu, mem, sc, cm]) => {
-        const uv = gv(u?.data?.prometheus), p95v = gv(p95?.data?.prometheus), p99v = gv(p99?.data?.prometheus), erv = gv(er?.data?.prometheus);
-        const cpuv = gv(cpu?.data?.prometheus) ?? latestSeriesValue(cm?.data, "CPU %");
-        const memv = gv(mem?.data?.prometheus) ?? latestSeriesValue(cm?.data, "Memory %");
-        const dv = gsv(sc?.data, "Desired Replicas (HPA)"); let se = 0; for (let i = 1; i < dv.length; i++) if (dv[i] !== dv[i-1]) se++;
-        const cpuMemValue = cpuv != null || memv != null ? `${cpuv != null ? formatPercentMetric(cpuv) : "--"} / ${memv != null ? formatPercentMetric(memv) : "--"}` : "0%";
-        setPlatformKpis([{ name: "Platform Uptime %", value: uv != null ? `${uv.toFixed(2)}%` : "0%" }, { name: "API Latency P95", value: p95v != null ? `${Math.round(p95v)}ms` : "0ms" }, { name: "API Latency P99", value: p99v != null ? `${Math.round(p99v)}ms` : "0ms" }, { name: "Error Rate %", value: erv != null ? `${erv.toFixed(2)}%` : "0%" }, { name: "AKS Pod Scaling Events", value: `${se}` }, { name: "CPU/Memory Saturation %", value: cpuMemValue }]);
-      }).catch(() => setPlatformKpis(platformKpiFallback));
-  }, [isSuperAdmin, refreshTick]);
-  useEffect(() => {
-    if (!isSuperAdmin) return;
-    const now = Math.floor(Date.now() / 1000); const start = now - 86400;
-    const fmt = (ts: number) => new Date(ts * 1000).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-    Promise.all([api.get(`/api/metrics-dashboard/query-preset-range/api_latency_comparison`, { params: { start, end: now, step: "60s" } }), api.get(`/api/metrics-dashboard/query-preset-range/error_rate_trend`, { params: { start, end: now, step: "120s" } }), api.get(`/api/metrics-dashboard/query-preset-range/cpu_memory_saturation`, { params: { start, end: now, step: "120s" } })])
-      .then(([lat, er, cm]) => {
-        const lm: Record<number, any> = {}; for (const s of lat?.data?.series ?? []) { const lk = s?.label === "P95" ? "p95" : s?.label === "P99" ? "p99" : null; if (!lk) continue; for (const v of s?.prometheus?.data?.result?.[0]?.values ?? []) { const ts = Number(v?.[0] ?? 0); if (!Number.isFinite(ts)) continue; if (!lm[ts]) lm[ts] = { label: fmt(ts), ts }; const val = Number(v?.[1] ?? 0); if (Number.isFinite(val)) lm[ts][lk] = val; } }
-        setPlatformLatencySeries(Object.entries(lm).sort(([a], [b]) => +a - +b).map(([, p]) => p));
-        const et = (er?.data?.series ?? []).find((s: any) => s?.label === "Error Rate") ?? er?.data?.series?.[0];
-        setPlatformErrorSeries((et?.prometheus?.data?.result?.[0]?.values ?? []).map((v: any) => { const ts = Number(v?.[0] ?? 0); const val = Number(v?.[1] ?? 0); return Number.isFinite(ts) && Number.isFinite(val) ? { label: fmt(ts), ts, value: val } : null; }).filter(Boolean));
-        const cmm: Record<number, any> = {}; for (const s of cm?.data?.series ?? []) { const lk = s?.label === "CPU %" ? "cpu" : s?.label === "Memory %" ? "memory" : null; if (!lk) continue; for (const v of s?.prometheus?.data?.result?.[0]?.values ?? []) { const ts = Number(v?.[0] ?? 0); if (!Number.isFinite(ts)) continue; if (!cmm[ts]) cmm[ts] = { label: fmt(ts), ts }; const val = Number(v?.[1] ?? 0); if (Number.isFinite(val)) cmm[ts][lk] = val; } }
-        setPlatformCpuMemSeries(Object.entries(cmm).sort(([a], [b]) => +a - +b).map(([, p]) => p));
-      }).catch(() => { setPlatformLatencySeries([]); setPlatformErrorSeries([]); setPlatformCpuMemSeries([]); });
-  }, [isSuperAdmin, refreshTick]);
-  useEffect(() => { if (!isDepartmentAdmin) return; api.get<DashboardSectionApiResponse>("/api/dashboard/sections/department-usage").then((r) => setDeptUsageKpis(r.data?.kpis?.map((k) => ({ name: k.label, value: k.unit ? `${k.value}${k.unit}` : `${k.value}` })) ?? deptUsageKpiFallback)).catch(() => setDeptUsageKpis(deptUsageKpiFallback)); }, [isDepartmentAdmin, refreshTick]);
-  useEffect(() => { if (!isDepartmentAdmin) return; api.get(`/api/metrics-dashboard/query-preset/avg_response_time`).then((r) => { const res = r?.data?.prometheus?.data?.result; const v = Array.isArray(res) && res.length > 0 ? res[0]?.value?.[1] : null; const n = v != null ? Number(v) : null; if (Number.isFinite(n)) setDeptUsageKpis((prev) => { const next = prev ? [...prev] : [...deptUsageKpiFallback]; const idx = next.findIndex((k) => k.name === "Avg Response Time"); if (idx >= 0) next[idx] = { ...next[idx], value: `${Math.round(n!)}ms` }; else next.push({ name: "Avg Response Time", value: `${Math.round(n!)}ms` }); return next; }); }).catch(() => setDeptUsageKpis((p) => p ?? deptUsageKpiFallback)); }, [isDepartmentAdmin, refreshTick]);
-  useEffect(() => { if (!isDepartmentAdmin) return; const now = Math.floor(Date.now() / 1000); api.get(`/api/metrics-dashboard/query-preset-range/response_time_trend`, { params: { start: now - 604800, end: now, step: "3600s" } }).then((r) => setDeptResponseTimeSeries((r?.data?.series?.[0]?.prometheus?.data?.result?.[0]?.values ?? []).map((v: any) => ({ date: new Date(Number(v?.[0] ?? 0) * 1000).toISOString().slice(0, 10), value: Number.isFinite(Number(v?.[1] ?? 0)) ? Number(v[1]) : 0 })))).catch(() => setDeptResponseTimeSeries([])); }, [isDepartmentAdmin, refreshTick]);
-  useEffect(() => { if (!isDepartmentAdmin) return; api.get<DashboardSectionApiResponse>("/api/dashboard/sections/department-approval").then((r) => setDeptApprovalKpis(r.data?.kpis?.map((k) => ({ name: k.label, value: k.unit ? `${k.value}${k.unit}` : `${k.value}` })) ?? deptApprovalKpiFallback)).catch(() => setDeptApprovalKpis(deptApprovalKpiFallback)); }, [isDepartmentAdmin, refreshTick]);
-  useEffect(() => { if (!isDepartmentAdmin) return; api.get<DashboardSectionApiResponse>("/api/dashboard/sections/department-hitl").then((r) => setDeptHitlKpis(r.data?.kpis?.map((k) => ({ name: k.label, value: k.unit ? `${k.value}${k.unit}` : `${k.value}` })) ?? deptHitlKpiFallback)).catch(() => setDeptHitlKpis(deptHitlKpiFallback)); }, [isDepartmentAdmin, refreshTick]);
-  useEffect(() => { if (!isDeveloper) return; api.get<DashboardSectionApiResponse>("/api/dashboard/sections/developer-code").then((r) => setDevCodeKpis(r.data?.kpis?.map((k) => ({ name: k.label, value: k.unit ? `${k.value}${k.unit}` : `${k.value}` })) ?? devCodeKpiFallback)).catch(() => setDevCodeKpis(devCodeKpiFallback)); }, [isDeveloper, refreshTick]);
-  useEffect(() => {
-    if (!isDeveloper) return;
-    Promise.all([api.get(`/api/metrics-dashboard/query-preset/avg_agent_latency`), api.get(`/api/metrics-dashboard/query-preset/api_latency_p95`), api.get(`/api/metrics-dashboard/query-preset/api_latency_p99`)]).then(([avg, p95, p99]) => {
-      const gv = (p: any) => { const r = p?.data?.result; const v = Array.isArray(r) && r.length > 0 ? r[0]?.value?.[1] : null; const n = v != null ? Number(v) : null; return Number.isFinite(n) ? n : null; };
-      setDevPerformanceKpis([{ name: "Avg Agent Latency", value: gv(avg?.data?.prometheus) != null ? `${Math.round(gv(avg?.data?.prometheus)!)}ms` : "0ms" }, { name: "Latency P95", value: gv(p95?.data?.prometheus) != null ? `${Math.round(gv(p95?.data?.prometheus)!)}ms` : "0ms" }, { name: "Latency P99", value: gv(p99?.data?.prometheus) != null ? `${Math.round(gv(p99?.data?.prometheus)!)}ms` : "0ms" }]);
-    }).catch(() => setDevPerformanceKpis(devPerformanceFallback));
-  }, [isDeveloper, refreshTick]);
-  useEffect(() => {
-    if (!isDeveloper) return;
-    const now = Math.floor(Date.now() / 1000); const start = now - 86400;
-    api.get(`/api/metrics-dashboard/query-preset-range/api_latency_comparison`, { params: { start, end: now, step: "60s" } }).then((r) => {
-      const merged: Record<number, any> = {};
-      for (const s of r?.data?.series ?? []) { const lk = s?.label === "P95" ? "p95" : s?.label === "P99" ? "p99" : null; if (!lk) continue; for (const v of s?.prometheus?.data?.result?.[0]?.values ?? []) { const ts = Number(v?.[0] ?? 0); if (!Number.isFinite(ts)) continue; if (!merged[ts]) merged[ts] = { label: new Date(ts * 1000).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }), ts }; const val = Number(v?.[1] ?? 0); if (Number.isFinite(val)) merged[ts][lk] = val; } }
-      setDevLatencySeries(Object.entries(merged).sort(([a], [b]) => +a - +b).map(([, p]) => p));
-    }).catch(() => setDevLatencySeries([]));
-  }, [isDeveloper, refreshTick]);
-  useEffect(() => { if (!isBusinessUser) return; api.get<DashboardSectionApiResponse>("/api/dashboard/sections/business-maturity").then((r) => setBusinessMaturityKpis(r.data?.kpis?.map((k) => ({ name: k.label, value: k.unit ? `${k.value}${k.unit}` : `${k.value}` })) ?? businessMaturityFallback)).catch(() => setBusinessMaturityKpis(businessMaturityFallback)); }, [isBusinessUser, refreshTick]);
-  useEffect(() => { if (!isBusinessUser) return; api.get(`/api/metrics-dashboard/query-preset/avg_response_time`).then((r) => { const res = r?.data?.prometheus?.data?.result; const v = Array.isArray(res) && res.length > 0 ? res[0]?.value?.[1] : null; const n = v != null ? Number(v) : null; if (!Number.isFinite(n)) { setBusinessExperienceKpis((p) => p ?? businessExperienceFallback); return; } setBusinessExperienceKpis((prev) => { const next = prev ? [...prev] : [...businessExperienceFallback]; const idx = next.findIndex((k) => k.name === "Avg Response Time"); if (idx >= 0) next[idx] = { ...next[idx], value: `${Math.round(n!)}ms` }; else next.push({ name: "Avg Response Time", value: `${Math.round(n!)}ms` }); return next; }); }).catch(() => setBusinessExperienceKpis((p) => p ?? businessExperienceFallback)); }, [isBusinessUser, refreshTick]);
-  useEffect(() => { if (!isBusinessUser) return; api.get(`/api/metrics-dashboard/query-preset/avg_session_duration`).then((r) => { const res = r?.data?.prometheus?.data?.result; const v = Array.isArray(res) && res.length > 0 ? res[0]?.value?.[1] : null; const n = v != null ? Number(v) : null; if (!Number.isFinite(n)) { setBusinessExperienceKpis((p) => p ?? businessExperienceFallback); return; } setBusinessExperienceKpis((prev) => { const next = prev ? [...prev] : [...businessExperienceFallback]; const idx = next.findIndex((k) => k.name === "Avg Session Duration"); if (idx >= 0) next[idx] = { ...next[idx], value: `${Math.round(n!)}ms` }; else next.push({ name: "Avg Session Duration", value: `${Math.round(n!)}ms` }); return next; }); }).catch(() => setBusinessExperienceKpis((p) => p ?? businessExperienceFallback)); }, [isBusinessUser, refreshTick]);
-  useEffect(() => { if (!isBusinessUser) return; const now = Math.floor(Date.now() / 1000); api.get(`/api/metrics-dashboard/query-preset-range/response_time_trend`, { params: { start: now - 604800, end: now, step: "3600s" } }).then((r) => setBusinessResponseTimeSeries((r?.data?.series?.[0]?.prometheus?.data?.result?.[0]?.values ?? []).map((v: any) => ({ date: new Date(Number(v?.[0] ?? 0) * 1000).toISOString().slice(0, 10), value: Number.isFinite(Number(v?.[1] ?? 0)) ? Number(v[1]) : 0 })))).catch(() => setBusinessResponseTimeSeries([])); }, [isBusinessUser, refreshTick]);
-  useEffect(() => { if (!isBusinessUser) return; api.get<DashboardSectionApiResponse>("/api/dashboard/sections/business-experience").then((r) => { const next = r.data?.kpis?.map((k) => ({ name: k.label, value: k.unit ? `${k.value}${k.unit}` : `${k.value}` })) ?? []; setBusinessExperienceKpis((prev) => { const m = new Map((prev ?? businessExperienceFallback).map((k) => [k.name, k.value])); for (const k of next) m.set(k.name, k.value); return Array.from(m.entries()).map(([name, value]) => ({ name, value })); }); }).catch(() => setBusinessExperienceKpis((p) => p ?? businessExperienceFallback)); }, [isBusinessUser, refreshTick]);
-  useEffect(() => { if (!isRootAdmin && !isLeaderExecutive) return; api.get<DashboardSectionApiResponse>("/api/dashboard/sections/root-maturity", regionConfig).then((r) => setRootMaturityKpis(r.data?.kpis?.map((k) => ({ name: k.label, value: k.unit ? `${k.value}${k.unit}` : `${k.value}` })) ?? rootMaturityFallback)).catch(() => setRootMaturityKpis(rootMaturityFallback)); }, [isRootAdmin, isLeaderExecutive, refreshTick, selectedRegionCode]);
-  useEffect(() => {
-    if (!isDepartmentAdmin) return;
-    api
-      .get<PendingSeriesResponse>("/api/dashboard/sections/department-approval/pending-series", {
-        params: { range: approvalRange, tz_offset_minutes: tzOffsetMinutes },
-      })
-      .then((r) => {
-        setApprovalPendingSeries(r.data?.series ?? []);
-      })
-      .catch((err) => {
-        console.log("[dashboard] approval pending-series error", err);
-        setApprovalPendingSeries([]);
-      });
-  }, [approvalRange, isDepartmentAdmin, refreshTick, tzOffsetMinutes]);
-  useEffect(() => {
-    if (!isDepartmentAdmin) return;
-    api
-      .get<HitlSeriesResponse>("/api/dashboard/sections/department-hitl/invocation-series", {
-        params: { range: hitlRange, tz_offset_minutes: tzOffsetMinutes },
-      })
-      .then((r) => {
-        setHitlInvocationSeries(r.data?.series ?? []);
-      })
-      .catch(() => setHitlInvocationSeries([]));
-  }, [hitlRange, isDepartmentAdmin, refreshTick, tzOffsetMinutes]);
-  useEffect(() => {
-    if (!isDepartmentAdmin) return;
-    api
-      .get<HitlSeriesResponse>("/api/dashboard/sections/department-hitl/response-time-series", {
-        params: { range: hitlRange, tz_offset_minutes: tzOffsetMinutes },
-      })
-      .then((r) => {
-        setHitlResponseSeries(r.data?.series ?? []);
-      })
-      .catch(() => setHitlResponseSeries([]));
-  }, [hitlRange, isDepartmentAdmin, refreshTick, tzOffsetMinutes]);
-  useEffect(() => { if (!isSuperAdmin && !isRootAdmin) return; const orgId = userData?.organization_id || null; const p: any = { ...(regionConfig || {}), params: orgId ? { org_id: orgId } : undefined }; api.get<DashboardSectionApiResponse>("/api/dashboard/sections/governance-guardrail", p).then((r) => setGovernanceKpis(r.data?.kpis?.map((k) => ({ name: k.label, value: k.unit ? `${k.value}${k.unit}` : `${k.value}` })) ?? governanceKpiFallback)).catch(() => setGovernanceKpis(governanceKpiFallback)); }, [isSuperAdmin, isRootAdmin, refreshTick, userData?.organization_id, selectedRegionCode]);
-  useEffect(() => {
-    if (!isSuperAdmin && !isRootAdmin) return;
-    const orgId = userData?.organization_id || null;
-    const p: any = { ...(regionConfig || {}), params: orgId ? { org_id: orgId } : undefined };
-    api.get<DashboardSectionApiResponse>("/api/dashboard/sections/observability-health", p)
-      .then((r) => {
-        const mapped = r.data?.kpis?.map((k) => ({ name: k.label, value: k.unit ? `${k.value}${k.unit}` : `${k.value}` })) ?? [];
-        setPlatformKpis((prev) => {
-          const base = prev ?? platformKpiFallback;
-          const obsNames = new Set(mapped.map((k) => k.name));
-          return [...base.filter((k) => !obsNames.has(k.name)), ...mapped];
-        });
-      })
-      .catch(() => {});
-  }, [isSuperAdmin, isRootAdmin, refreshTick, userData?.organization_id, selectedRegionCode]);
-  useEffect(() => {
-    if (!isSuperAdmin && !isRootAdmin) return;
-    const orgId = userData?.organization_id || null;
-    const p: any = { ...(regionConfig || {}), params: orgId ? { org_id: orgId } : undefined };
-    api.get<DashboardSectionApiResponse>("/api/dashboard/sections/cost-financial", p)
-      .then((r) => setCostKpis(r.data?.kpis?.map((k) => ({ name: k.label, value: k.unit === "$" ? `$${k.value}` : k.unit ? `${k.value}${k.unit}` : `${k.value}` })) ?? costKpiFallback))
-      .catch(() => setCostKpis(costKpiFallback));
-  }, [isSuperAdmin, isRootAdmin, refreshTick, userData?.organization_id, selectedRegionCode]);
-  useEffect(() => {
-    if (!isSuperAdmin && !isRootAdmin) return;
-    const orgId = userData?.organization_id || null;
-    api.get<PendingSeriesResponse>("/api/dashboard/sections/cost-financial/monthly-trend", {
-      ...(regionConfig || {}),
-      params: { range: costRange, tz_offset_minutes: tzOffsetMinutes, ...(orgId ? { org_id: orgId } : {}) },
-    })
-      .then((r) => setCostTrendSeries(r.data?.series ?? []))
-      .catch(() => setCostTrendSeries([]));
-  }, [costRange, isSuperAdmin, isRootAdmin, refreshTick, userData?.organization_id, selectedRegionCode, tzOffsetMinutes]);
-
-  // -- Chart data helpers ------------------------------------------------
-
-  const mkDateSeries = (series: PendingSeriesPoint[] | null, days: number) => {
-    const fb = Array.from({ length: days }, (_, i) => {
-      const d = new Date();
-      d.setDate(d.getDate() - (days - 1 - i));
-      const localDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-      const dateStr = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, "0")}-${String(localDate.getDate()).padStart(2, "0")}`;
-      return { date: dateStr, value: 0 };
-    });
-    return (series?.length ? series : fb).map((pt) => ({
-      label: new Date(`${pt.date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      value: pt.value,
-    }));
-  };
-  const mkTsSeries = (n: number) => Array.from({ length: n }, (_, i) => { const ts = Math.floor(Date.now() / 1000) - (n - 1 - i) * 3600; return { label: new Date(ts * 1000).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }), ts }; });
-
-  const aDays = approvalRange === "7d" ? 7 : approvalRange === "30d" ? 30 : 84;
-  const hDays = hitlRange === "7d" ? 7 : hitlRange === "30d" ? 30 : 84;
-
-  const approvalChartData      = useMemo(() => mkDateSeries(approvalPendingSeries, aDays), [approvalPendingSeries, aDays]);
-  const hitlInvocationChartData = useMemo(() => mkDateSeries(hitlInvocationSeries, hDays), [hitlInvocationSeries, hDays]);
-  const hitlResponseChartData   = useMemo(() => mkDateSeries(hitlResponseSeries, hDays), [hitlResponseSeries, hDays]);
-  const deptRtChartData         = useMemo(() => mkDateSeries(deptResponseTimeSeries, 7), [deptResponseTimeSeries]);
-  const bizRtChartData          = useMemo(() => mkDateSeries(businessResponseTimeSeries, 7), [businessResponseTimeSeries]);
-  const platLatencyData  = useMemo(() => platformLatencySeries?.length ? platformLatencySeries : mkTsSeries(8).map((p) => ({ ...p, p95: 0, p99: 0 })), [platformLatencySeries]);
-  const platErrorData    = useMemo(() => platformErrorSeries?.length ? platformErrorSeries : mkTsSeries(8).map((p) => ({ ...p, value: 0 })), [platformErrorSeries]);
-  const platCpuMemData   = useMemo(() => platformCpuMemSeries?.length ? platformCpuMemSeries : mkTsSeries(8).map((p) => ({ ...p, cpu: 0, memory: 0 })), [platformCpuMemSeries]);
-  const cDays = costRange === "90d" ? 90 : 30;
-  const costTrendChartData = useMemo(() => mkDateSeries(costTrendSeries, cDays), [costTrendSeries, cDays]);
-  const devLatData       = useMemo(() => devLatencySeries ?? [], [devLatencySeries]);
-
-  // -- Resolve KPIs + charts for each section ----------------------------
-
-  const sectionsToRender = isDepartmentAdmin ? departmentSections : isDeveloper ? developerSections : isBusinessUser ? businessSections : (isRootAdmin || isLeaderExecutive) ? rootSections : sections;
-
-  const resolveSection = (section: SectionConfig): { kpis: SectionKpi[]; charts: SectionChart[] } => {
-    let kpis = [...section.kpis];
-
-    const applyOverride = (overrides: SectionKpi[] | null) => {
-      if (!overrides?.length) return;
-      const map = new Map(overrides.map((k) => [k.name, k.value]));
-      kpis = kpis.map((k) => ({ ...k, value: map.get(k.name) ?? k.value }));
-    };
-
-    if (isSuperAdmin && section.id === "lifecycle") kpis = lifecycleKpis ?? lifecycleKpiFallback;
-    if (isSuperAdmin && section.id === "governance") applyOverride(governanceKpis);
-    if (isSuperAdmin && section.id === "platform") applyOverride(platformKpis);
-    if (isSuperAdmin && section.id === "cost") applyOverride(costKpis);
-    if (isDepartmentAdmin && section.id === "usage") applyOverride(deptUsageKpis);
-    if (isDepartmentAdmin && section.id === "approval") applyOverride(deptApprovalKpis);
-    if (isDepartmentAdmin && section.id === "hitl") applyOverride(deptHitlKpis);
-    if (isDeveloper && section.id === "code") applyOverride(devCodeKpis);
-    if (isDeveloper && section.id === "performance") applyOverride(devPerformanceKpis);
-    if ((isRootAdmin || isLeaderExecutive) && section.id === "maturity") applyOverride(rootMaturityKpis);
-    if (isBusinessUser && section.id === "maturity") applyOverride(businessMaturityKpis);
-    if (isBusinessUser && section.id === "experience") applyOverride(businessExperienceKpis);
-
-    const charts = section.charts.map((chart) => {
-      if (section.id === "platform") {
-        if (chart.title === "API Latency P95 vs P99") return { ...chart, data: platLatencyData };
-        if (chart.title === "Error Rate Trend")        return { ...chart, data: platErrorData };
-        if (chart.title === "CPU & Memory Saturation") return { ...chart, data: platCpuMemData };
-      }
-      if (section.id === "cost" && chart.title === "Monthly Cost Trend") return { ...chart, data: costTrendChartData };
-      if (section.id === "usage" && chart.title === "Response Time Trend") return { ...chart, data: deptRtChartData };
-      if (section.id === "approval" && chart.title === "Pending Approvals") return { ...chart, data: approvalChartData };
-      if (section.id === "hitl") {
-        if (chart.title === "Invocation Rate") return { ...chart, data: hitlInvocationChartData };
-        if (chart.title === "Response Time")   return { ...chart, data: hitlResponseChartData };
-      }
-      if (section.id === "performance" && chart.title === "API Latency P95 vs P99") return { ...chart, data: devLatData };
-      if (section.id === "experience" && chart.title === "Response Time") return { ...chart, data: bizRtChartData };
-      return chart;
-    });
-
-    return { kpis, charts };
-  };
-
-  const headerSubtitle = isDepartmentAdmin
-    ? "Department Admin - Operational Governance"
-    : isDeveloper
-      ? "Developer - Build & Optimize"
-      : isBusinessUser
-        ? "Business User - Productivity & Experience"
-        : isRootAdmin
-          ? "Executive - Strategic Oversight"
-          : "Super Admin - Full Organization View";
-
-  const approvalRangeSelector = (
-    <Select value={approvalRange} onValueChange={(v) => setApprovalRange(v as "7d" | "30d" | "12w")}>
-      <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue /></SelectTrigger>
-      <SelectContent>{approvalRangeOptions.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
-    </Select>
-  );
-  const hitlRangeSelector = (
-    <Select value={hitlRange} onValueChange={(v) => setHitlRange(v as "7d" | "30d" | "12w")}>
-      <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue /></SelectTrigger>
-      <SelectContent>{approvalRangeOptions.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
-    </Select>
-  );
-  const costRangeOptions = [{ value: "30d", label: "Last 30 days" }, { value: "90d", label: "Last 90 days" }];
-  const costRangeSelector = (
-    <Select value={costRange} onValueChange={(v) => setCostRange(v as "30d" | "90d")}>
-      <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue /></SelectTrigger>
-      <SelectContent>{costRangeOptions.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
-    </Select>
-  );
-
-  return (
-    <div className="flex h-full w-full flex-col overflow-hidden">
-      {/* -- Page Header -- */}
-      <div className="flex-shrink-0 border-b border-border bg-card">
-        <div className="px-4 py-3 sm:px-6 md:px-8 md:py-4">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-lg font-bold text-foreground md:text-xl">{t("Dashboard")}</h1>
-              <div className="mt-1.5 flex items-center gap-2">
-                <span className="inline-flex items-center rounded-full border border-border bg-background px-2.5 py-0.5 text-xxs font-medium text-muted-foreground">
-                  {headerSubtitle}
-                </span>
-                <span className="text-muted-foreground text-xxs">-</span>
-                <span className="text-xxs text-muted-foreground">
-                  {sectionsToRender.length} section{sectionsToRender.length !== 1 ? "s" : ""}
-                </span>
-              </div>
+        {/* Agents Panel — no internal scroll; participates in the single
+            sidebar scroll defined by the parent wrapper. */}
+        <div className="flex shrink-0 flex-col border-t border-border">
+          <div className="shrink-0 px-4 pb-2 pt-3 text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+            {t("Agents")}
+          </div>
+          <div className="px-2 pb-2">
+            <div className="flex flex-col gap-0.5">
+              {agents.map((agent) => (
+                <button
+                  key={agent.id}
+                  onClick={() => {
+                    setSelectedModelId(agent.id);
+                    setShowModelPicker(false);
+                  }}
+                  className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-[13px] text-foreground hover:bg-accent ${
+                    selectedModelId === agent.id ? "bg-accent" : ""
+                  }`}
+                >
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ background: agent.online ? agent.color : undefined }}
+                  />
+                  <span className="flex min-w-0 items-center">
+                    <span className="truncate">{agent.name}</span>
+                    {versionBadge(agent.version_label)}
+                    {uatBadge(agent.environment)}
+                  </span>
+                </button>
+              ))}
             </div>
+          </div>
+        </div>
+        </div>
+      </div>
 
-            {/* Region selector — root admin only */}
-            {isRootAdmin && regions.length > 1 && (
-              <div className="flex items-center gap-2">
-                <Globe className="h-4 w-4 text-muted-foreground" />
-                <Select value={selectedRegionCode ?? ""} onValueChange={setSelectedRegion}>
-                  <SelectTrigger className="h-8 w-[160px] text-xs">
-                    <SelectValue placeholder="Select Region" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {regions.map((r) => (
-                      <SelectItem key={r.code} value={r.code}>
-                        {r.name}{r.is_hub ? " (Hub)" : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+      {/* ---- Addon: Plus menu dropdown — rendered fixed to escape input overflow ---- */}
+      {showPlusMenu && (
+        <div
+          data-plus-menu
+          className="fixed z-[100] min-w-[220px] rounded-xl border border-border bg-popover p-1 shadow-lg"
+          style={{ bottom: plusMenuPos.bottom, left: plusMenuPos.left }}
+        >
+          <button
+            onClick={() => setShowPlusMenu(false)}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-foreground hover:bg-accent"
+          >
+            <Paintbrush size={16} className="text-muted-foreground" />
+            <span>{t("Create image")}</span>
+          </button>
+          <button
+            onClick={() => {
+              setShowPlusMenu(false);
+              setIsCanvasEnabled(!isCanvasEnabled);
+            }}
+            className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm text-foreground hover:bg-accent"
+          >
+            <div className="flex items-center gap-3">
+              <BookOpen size={16} className={isCanvasEnabled ? "text-red-500" : "text-muted-foreground"} />
+              <span>{t("Canvas")}</span>
+            </div>
+            {isCanvasEnabled && (
+              <span className="text-xs font-medium text-red-500">ON</span>
+            )}
+          </button>
+          <button
+            onClick={() => {
+              setShowPlusMenu(false);
+              fileInputRef.current?.click();
+            }}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-foreground hover:bg-accent"
+          >
+            <Upload size={16} className="text-muted-foreground" />
+            <span>{t("Upload from this device")}</span>
+          </button>
+          <button
+            onClick={() => {
+              setShowPlusMenu(false);
+              setSpPickerOpen(true);
+            }}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-foreground hover:bg-accent"
+          >
+            <FileUp size={16} className="text-green-500" />
+            <span>{t("Upload from SharePoint")}</span>
+          </button>
+          
+          <div className="my-1 h-px bg-border" />
+          {(() => {
+            const selectedModel = noAgentMode && selectedAiModel ? aiModels.find((m) => m.id === selectedAiModel) : null;
+            // supports_thinking = model can show visible reasoning/thinking text
+            // reasoning = model reasons internally (but may not show it, e.g. OpenAI o1/o3)
+            const modelSupportsReasoning = !!selectedModel?.capabilities?.supports_thinking;
+            const cotDisabled = noAgentMode && !modelSupportsReasoning;
+            return (
+          <button
+            onClick={() => { if (!cotDisabled) setCotReasoning(!cotReasoning); }}
+            className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm ${
+              cotDisabled ? "cursor-not-allowed text-muted-foreground/50" : "text-foreground hover:bg-accent"
+            }`}
+            title={cotDisabled ? "Selected model does not support reasoning" : undefined}
+          >
+            <div className="flex items-center gap-3">
+              <Lightbulb size={16} className={cotDisabled ? "text-muted-foreground/30" : "text-muted-foreground"} />
+              <span>{t("COT reasoning")}</span>
+              {cotDisabled && noAgentMode && selectedModel && (
+                <span className="text-xxs text-muted-foreground/50">({t("not supported")})</span>
+              )}
+            </div>
+            <div
+              className={`relative h-5 w-9 rounded-full transition-colors ${
+                cotDisabled ? "bg-muted-foreground/10" : cotReasoning ? "bg-primary" : "bg-muted-foreground/30"
+              }`}
+            >
+              <div
+                className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${cotReasoning ? "translate-x-4" : "translate-x-0.5"}`}
+              />
+            </div>
+          </button>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Three-dot chat menu dropdown — rendered fixed to escape scroll container */}
+      {chatMenuOpenId && (
+        <div
+          data-chat-menu
+          className="fixed z-[100] min-w-[140px] rounded-lg border border-border bg-popover p-1 shadow-lg"
+          style={{ top: chatMenuPos.top, left: chatMenuPos.left }}
+        >
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              const sessionId = chatMenuOpenId;
+              setChatMenuOpenId(null);
+              handleDeleteSession(sessionId);
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-red-500 hover:bg-accent"
+          >
+            <Trash2 size={14} />
+            <span>{t("Delete")}</span>
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setChatMenuOpenId(null);
+              handleArchiveSession(chatMenuOpenId!, true);
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-foreground hover:bg-accent"
+          >
+            <Archive size={14} />
+            <span>{t("Archive")}</span>
+          </button>
+        </div>
+      )}
+
+      {/* ================ MAIN AREA ================ */}
+      {showNotebookLM ? (
+        /* ---- NotebookLM panel (inline, like image gallery) ---- */
+        <NotebookLMPanel onBack={() => setShowNotebookLM(false)} />
+      ) : showImageGallery ? (
+        /* ---- Image Gallery View ---- */
+        <ImageGalleryView
+          onBack={() => setShowImageGallery(false)}
+          selectedImage={selectedGalleryImage}
+          onSelectImage={setSelectedGalleryImage}
+          onClosePreview={() => setSelectedGalleryImage(null)}
+        />
+      ) : (
+      <div className="relative flex flex-1 flex-col">
+        {/* Top Bar */}
+        <div className="flex h-[52px] shrink-0 items-center gap-2 border-b border-border px-4">
+          {!sidebarOpen && (
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="flex items-center rounded-md p-1.5 text-muted-foreground hover:bg-accent"
+            >
+              <PanelLeft size={18} />
+            </button>
+          )}
+
+          {/* Agent selector */}
+          <div ref={modelPickerRef} className="relative">
+            <button
+              onClick={() => setShowModelPicker(!showModelPicker)}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[15px] font-semibold text-foreground hover:bg-accent"
+            >
+              <Sparkles size={16} style={{ color: noAgentMode ? "#6b7280" : (selectedAgent?.color || "#10a37f") }} />
+              {noAgentMode ? (
+                <span className="text-muted-foreground">{t("No Agent")}</span>
+              ) : selectedAgent ? (
+                <span className="flex items-center">
+                  <span>{selectedAgent.name}</span>
+                  {versionBadge(selectedAgent.version_label)}
+                  {uatBadge(selectedAgent.environment)}
+                </span>
+              ) : (
+                t("Select Agent")
+              )}
+              <ChevronDown size={14} className="opacity-50" />
+            </button>
+
+            {showModelPicker && (
+              <div className="absolute left-0 top-full z-50 mt-1 min-w-[240px] rounded-xl border border-border bg-popover p-1 shadow-lg">
+                {/* No Agent option */}
+                <button
+                  onClick={() => {
+                    setNoAgentMode(true);
+                    setSelectedModelId("");
+                    setShowModelPicker(false);
+                    if (!selectedAiModel) {
+                      const defaultModel = aiModels.find((m) => m.is_default) || aiModels[0];
+                      if (defaultModel) setSelectedAiModel(defaultModel.id);
+                    }
+                  }}
+                  className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm text-foreground hover:bg-accent ${
+                    noAgentMode ? "bg-accent" : ""
+                  }`}
+                >
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted">
+                    <User size={14} className="text-muted-foreground" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium">{t("No Agent")}</div>
+                    <div className="text-xs text-muted-foreground">{t("Chat with AI model directly")}</div>
+                  </div>
+                  {noAgentMode && (
+                    <span className="ml-auto text-primary"><Check size={14} /></span>
+                  )}
+                </button>
+                <div className="my-1 h-px bg-border" />
+                {agents.map((agent) => (
+                  <button
+                    key={agent.id}
+                    onClick={() => {
+                      setSelectedModelId(agent.id);
+                      setNoAgentMode(false);
+                      setSelectedAiModel(null);
+                      setShowModelPicker(false);
+                    }}
+                    className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm text-foreground hover:bg-accent ${
+                      !noAgentMode && selectedModelId === agent.id ? "bg-accent" : ""
+                    }`}
+                  >
+                    <span
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md"
+                      style={{ background: agent.color }}
+                    >
+                      <Sparkles size={14} color="white" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center font-medium">
+                        <span>{agent.name}</span>
+                        {versionBadge(agent.version_label)}
+                        {uatBadge(agent.environment)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {agent.description}
+                      </div>
+                    </div>
+                    {!noAgentMode && selectedModelId === agent.id && (
+                      <span className="ml-auto text-primary">
+                        <Check size={14} />
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ---- Addon: AI Model selector (beside agent dropdown) ---- */}
+          <div ref={aiModelPickerRef} className="relative">
+            <button
+              onClick={() => {
+                setShowAiModelPicker(!showAiModelPicker);
+                setShowMoreModels(false);
+              }}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[15px] font-semibold hover:bg-accent ${
+                noAgentMode ? "text-foreground" : "text-muted-foreground"
+              }`}
+            >
+              {noAgentMode && selectedAiModel && aiModels.find((m) => m.id === selectedAiModel)?.icon ? (
+                <img
+                  src={aiModels.find((m) => m.id === selectedAiModel)!.icon}
+                  alt=""
+                  className="h-4 w-4 shrink-0 object-contain"
+                />
+              ) : (
+                <span className="h-3 w-3 shrink-0 rounded-full bg-muted-foreground/40" />
+              )}
+              <span>{noAgentMode && selectedAiModel ? aiModels.find((m) => m.id === selectedAiModel)?.name || t("Choose AI Model") : t("Choose AI Model")}</span>
+              <ChevronDown size={14} className="opacity-50" />
+            </button>
+
+            {showAiModelPicker && (
+              <div className="absolute left-0 top-full z-50 mt-1 min-w-[220px] rounded-xl border border-border bg-popover p-1 shadow-lg">
+                <div className="px-3 pb-1 pt-2 text-xxs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {t("Choose Your AI Model")}
+                </div>
+                {aiModels.filter((m) => m.group === "main").map((model) => (
+                  <button
+                    key={model.id}
+                    disabled={!noAgentMode}
+                    onClick={() => {
+                      if (!noAgentMode) return;
+                      setSelectedAiModel(model.id);
+                      setShowAiModelPicker(false);
+                    }}
+                    className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm ${
+                      !noAgentMode
+                        ? "cursor-not-allowed text-muted-foreground/50"
+                        : selectedAiModel === model.id
+                          ? "bg-accent text-foreground"
+                          : "text-foreground hover:bg-accent"
+                    }`}
+                  >
+                    <img
+                      src={model.icon}
+                      alt=""
+                      className={`h-5 w-5 shrink-0 object-contain ${!noAgentMode ? "opacity-30" : ""}`}
+                    />
+                    <span className="flex-1">{model.name}</span>
+                    {noAgentMode && selectedAiModel === model.id && (
+                      <Check size={14} className="text-primary" />
+                    )}
+                  </button>
+                ))}
+                {/* More submenu — only show if there are "more" models */}
+                {aiModels.some((m) => m.group === "more") && <div className="relative">
+                  <button
+                    disabled={!noAgentMode}
+                    onClick={() => {
+                      if (!noAgentMode) return;
+                      setShowMoreModels(!showMoreModels);
+                    }}
+                    className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm ${
+                      !noAgentMode
+                        ? "cursor-not-allowed text-muted-foreground/50"
+                        : "text-foreground hover:bg-accent"
+                    }`}
+                  >
+                    <MoreVertical size={14} className={!noAgentMode ? "opacity-30" : ""} />
+                    <span className="flex-1">{t("More")}</span>
+                    <ChevronRight size={14} className="opacity-50" />
+                  </button>
+                  {showMoreModels && noAgentMode && (
+                    <div className="absolute left-full top-0 z-50 ml-1 min-w-[180px] rounded-xl border border-border bg-popover p-1 shadow-lg">
+                      {aiModels.filter((m) => m.group === "more").map((model) => (
+                        <button
+                          key={model.id}
+                          onClick={() => {
+                            setSelectedAiModel(model.id);
+                            setShowAiModelPicker(false);
+                            setShowMoreModels(false);
+                          }}
+                          className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm ${
+                            selectedAiModel === model.id
+                              ? "bg-accent text-foreground"
+                              : "text-foreground hover:bg-accent"
+                          }`}
+                        >
+                          <img
+                            src={model.icon}
+                            alt=""
+                            className="h-5 w-5 shrink-0 object-contain"
+                          />
+                          <span className="flex-1">{model.name}</span>
+                          {selectedAiModel === model.id && (
+                            <Check size={14} className="text-primary" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>}
               </div>
             )}
           </div>
         </div>
-      </div>
 
-      {/* ── Remote region banner ── */}
-      {isRootAdmin && isRemoteRegion && selectedRegionCode && (
-        <div className="flex-shrink-0 border-b border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-8 py-2.5">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-amber-800 dark:text-amber-200">
-              Viewing dashboard data for <span className="font-semibold">{regions.find((r) => r.code === selectedRegionCode)?.name ?? selectedRegionCode}</span>. Data is read-only.
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                const hub = regions.find((r) => r.is_hub);
-                if (hub) setSelectedRegion(hub.code);
-              }}
-              className="text-xs font-medium text-amber-700 dark:text-amber-300 hover:underline"
-            >
-              Back to Home
-            </button>
+        {/* ================ MESSAGES ================ */}
+        <div className="flex flex-1 flex-col items-center overflow-y-auto">
+          <div className="w-full max-w-3xl px-6 pb-44 pt-6">
+            {messages.map((msg, idx) => {
+              // Context reset divider
+              if (msg.category === "context_reset") {
+                return (
+                  <div key={msg.id} className="flex items-center gap-3 py-4">
+                    <div className="h-px flex-1 bg-border" />
+                    <span className="text-xs font-medium text-muted-foreground">
+                      {msg.content}
+                    </span>
+                    <div className="h-px flex-1 bg-border" />
+                  </div>
+                );
+              }
+
+              const isUser = msg.sender === "user";
+              const isThinking = msg.sender === "agent" && msg.content === "" && isSending;
+
+              // Canvas: any agent message can be edited via canvas
+              const isEditingThis = canvasEditingId === msg.id;
+              const hasFollowupAgentReply = messages
+                .slice(idx + 1)
+                .some(
+                  (nextMsg) =>
+                    nextMsg.sender === "agent" &&
+                    !nextMsg.hitl &&
+                    (!!nextMsg.content?.trim() || !!nextMsg.contentBlocks?.length),
+                );
+              const explicitHitlStatus = hitlDoneMap[msg.id];
+              const hitlResolved = msg.hitlIsDeployed
+                ? !!explicitHitlStatus
+                : (!!explicitHitlStatus || hasFollowupAgentReply);
+              const resolvedLabel = explicitHitlStatus || (!msg.hitlIsDeployed && hasFollowupAgentReply ? "Completed" : "");
+              const isRejectedResolution = resolvedLabel.toLowerCase().includes("reject");
+              return (
+                <div key={msg.id} className="flex items-start gap-4 py-5">
+                  {/* Avatar */}
+                  <div
+                    className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center ${
+                      isUser ? "rounded-full bg-muted" : "rounded-lg"
+                    }`}
+                    style={!isUser ? { background: getAgentColor(msg.agentName) } : undefined}
+                  >
+                    {isUser ? (
+                      <User size={16} className="text-muted-foreground" />
+                    ) : (
+                      <Sparkles size={16} color="white" />
+                    )}
+                  </div>
+
+                  {/* Content */}
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-foreground">
+                      {isUser ? t("You") : msg.agentName}
+                      <span className="text-xs font-normal text-muted-foreground">
+                        {msg.timestamp}
+                      </span>
+                    </div>
+                    {isThinking ? (
+                      <div className="flex items-center gap-2">
+                        <Loader2 size={16} className="animate-spin text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">{t("Thinking...")}</span>
+                      </div>
+                    ) : isUser ? (
+                      <div className="text-[15px] leading-relaxed text-foreground/80">
+                        {highlightMentions(msg.content)}
+                        {msg.files && msg.files.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {msg.files.map((filePath, idx) => {
+                              const ext = filePath.split(".").pop()?.toLowerCase() || "";
+                              const isImage = ["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext);
+                              const fileName = filePath.split("/").pop() || filePath;
+                              return isImage ? (
+                                <img
+                                  key={idx}
+                                  src={`${BASE_URL_API}files/images/${filePath}`}
+                                  alt="uploaded"
+                                  className="max-h-48 max-w-xs rounded-lg border border-border object-contain"
+                                />
+                              ) : (
+                                <div
+                                  key={idx}
+                                  className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground"
+                                >
+                                  <FileText size={16} />
+                                  <span className="max-w-[200px] truncate" title={fileName}>{fileName}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-[15px] leading-relaxed text-foreground/80">
+                        {/* CoT Reasoning (collapsible) */}
+                        {cotReasoning && msg.reasoningContent && (
+                          <details className="mb-3 rounded-lg border border-border bg-muted/30 p-3" open={isSending && msg.id === streamingMsgId}>
+                            <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
+                              💭 {t("Thinking")}
+                              {isSending && msg.id === streamingMsgId && (
+                                <span className="ml-2 text-xs text-muted-foreground/60">({t("streaming...")})</span>
+                              )}
+                            </summary>
+                            <div className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+                              {msg.reasoningContent}
+                            </div>
+                          </details>
+                        )}
+                        {msg.contentBlocks && msg.contentBlocks.length > 0 && (
+                          <ContentBlockDisplay
+                            contentBlocks={msg.contentBlocks}
+                            chatId={msg.id}
+                            state={msg.blocksState}
+                            isLoading={isSending && msg.id === streamingMsgId}
+                          />
+                        )}
+                        <MarkdownField
+                          chat={{}}
+                          isEmpty={!msg.content}
+                          chatMessage={msg.content}
+                          editedFlag={null}
+                        />
+                        {/* Text-to-Speech button — hide for image-only responses */}
+                        {msg.content && !isSending && !(/^\s*!\[.*\]\(.*\)\s*$/.test(msg.content.trim())) && (
+                          <button
+                            onClick={() => handleSpeak(msg.content)}
+                            className="mt-1.5 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                            title={t("Read aloud")}
+                          >
+                            <AudioLines size={13} />
+                            <span>{t("Read aloud")}</span>
+                          </button>
+                        )}
+                        {/* HITL action buttons */}
+                        {msg.hitl && (
+                          msg.hitlIsDeployed ? (
+                            /* Deployed runs: approval goes to dept admin via HITL page */
+                            hitlResolved ? (
+                              <div
+                                className={[
+                                  "mt-3 flex items-center gap-2 rounded-md border px-4 py-2.5 text-sm",
+                                  isRejectedResolution
+                                    ? "border-red-300 bg-red-50 text-red-700 dark:border-red-700 dark:bg-red-950/30 dark:text-red-300"
+                                    : "border-green-300 bg-green-50 text-green-700 dark:border-green-700 dark:bg-green-950/30 dark:text-green-300",
+                                ].join(" ")}
+                              >
+                                <span className="font-medium">Human review status:</span>
+                                <span>{resolvedLabel}</span>
+                              </div>
+                            ) : (
+                              <div className="mt-3 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm dark:border-amber-700 dark:bg-amber-950/30">
+                                <Clock size={16} className="shrink-0 text-amber-600 dark:text-amber-400" />
+                                <span className="text-amber-700 dark:text-amber-300">
+                                  Pending department admin approval. The assigned admin can approve or reject from the{" "}
+                                  <a
+                                    href="/hitl-approvals"
+                                    className="font-medium underline hover:text-amber-900 dark:hover:text-amber-100"
+                                  >
+                                    HITL Approvals
+                                  </a>{" "}
+                                  page.
+                                </span>
+                              </div>
+                            )
+                          ) : (
+                          (msg.hitlActions && msg.hitlActions.length > 0) ? (
+                          <div className="mt-3 flex flex-col gap-2.5">
+                            <div className="flex flex-wrap gap-2">
+                            {msg.hitlActions.map((action) => {
+                              const done = hitlDoneMap[msg.id];
+                              const isLoading = hitlLoadingId === msg.id;
+                              const isThisAction = hitlLoadingAction === action;
+                              const isReject = action.toLowerCase().includes("reject");
+                              return (
+                                <button
+                                  key={action}
+                                  onClick={() =>
+                                    handleHitlAction(msg.id, msg.hitlThreadId ?? "", action)
+                                  }
+                                  disabled={!!done || isLoading}
+                                  className={[
+                                    "inline-flex items-center gap-1.5 rounded-md border px-4 py-1.5 text-sm font-medium transition-colors",
+                                    done === action
+                                      ? isReject
+                                        ? "border-red-500 bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400"
+                                        : "border-green-500 bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400"
+                                      : done
+                                        ? "cursor-not-allowed border-border bg-muted/30 text-muted-foreground opacity-50"
+                                        : isLoading && isThisAction
+                                          ? isReject
+                                            ? "cursor-wait border-red-400 bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400"
+                                            : "cursor-wait border-green-400 bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400"
+                                          : isLoading
+                                            ? "cursor-not-allowed border-border bg-muted/30 text-muted-foreground opacity-50"
+                                            : isReject
+                                              ? "cursor-pointer border-red-300 text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950/30"
+                                              : "cursor-pointer border-border text-foreground hover:bg-muted",
+                                  ].join(" ")}
+                                >
+                                  {isLoading && isThisAction && (
+                                    <Loader2 size={14} className="animate-spin" />
+                                  )}
+                                  {isLoading && isThisAction
+                                    ? "Submitting..."
+                                    : done === action
+                                      ? `\u2713 ${action}`
+                                      : action}
+                                </button>
+                              );
+                            })}
+                            </div>
+                            {hitlDoneMap[msg.id] && (
+                              <span className="text-xs text-muted-foreground">
+                                Decision submitted — agent continued.
+                              </span>
+                            )}
+                          </div>
+                          ) : null
+                          )
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
+
+        {/* ================ INPUT AREA ================ */}
+        <div className="pointer-events-none absolute bottom-0 left-0 right-0 flex justify-center bg-gradient-to-t from-background from-40% to-transparent px-6 pb-6">
+          <div className="pointer-events-auto relative w-full max-w-3xl">
+            {/* Mention dropdown */}
+            {showMentions && (
+              <div className="absolute bottom-full left-0 z-50 mb-2 max-h-64 min-w-[240px] overflow-y-auto rounded-xl border border-border bg-popover p-1 shadow-lg">
+                {filteredAgents.map((agent) => (
+                  <button
+                    key={agent.id}
+                    onClick={() => handleSelectAgent(agent)}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm text-foreground hover:bg-accent"
+                  >
+                    <span
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+                      style={{ background: agent.color }}
+                    >
+                      <Sparkles size={12} color="white" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex items-center font-medium">
+                        <span>@{agent.name}</span>
+                        {versionBadge(agent.version_label)}
+                        {uatBadge(agent.environment)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {agent.description}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Text Input */}
+            <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+              {/* File previews */}
+              {uploadFiles.length > 0 && (
+                <div className="flex flex-wrap gap-2 px-4 pt-3">
+                  {uploadFiles.map((f) => (
+                    <div
+                      key={f.id}
+                      className="relative flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1.5 text-xs"
+                    >
+                      {f.loading ? (
+                        <Loader2 size={14} className="animate-spin text-muted-foreground" />
+                      ) : f.error ? (
+                        <span className="text-destructive">Failed</span>
+                      ) : ["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(
+                          f.file.name.split(".").pop()?.toLowerCase() || ""
+                        ) ? (
+                        <ImagePlus size={14} className="text-muted-foreground" />
+                      ) : (
+                        <FileText size={14} className="text-muted-foreground" />
+                      )}
+                      <span className="max-w-[120px] truncate">{f.file.name}</span>
+                      <button
+                        onClick={() => removeFile(f.id)}
+                        className="ml-0.5 rounded-full p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Autocomplete suggestions dropdown */}
+              {showSuggestions && suggestions.length > 0 && noAgentMode && (
+                <div className="border-b border-border px-2 py-1.5">
+                  {suggestions.map((s, i) => (
+                    <div
+                      key={i}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleSelectSuggestion(s);
+                      }}
+                      className={`flex w-full cursor-pointer items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition-colors ${
+                        i === selectedSuggestionIdx
+                          ? "bg-accent text-foreground"
+                          : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                      }`}
+                    >
+                      <Search size={12} className="shrink-0 opacity-50" />
+                      <span className="truncate">{s}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => handleInputChange(e.target.value)}
+                onPaste={handlePaste}
+                disabled={isSending || !canInteract}
+                onKeyDown={(e) => {
+                  // Suggestion keyboard navigation
+                  if (showSuggestions && suggestions.length > 0) {
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      setSelectedSuggestionIdx((prev) => (prev + 1) % suggestions.length);
+                      return;
+                    }
+                    if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      setSelectedSuggestionIdx((prev) => (prev <= 0 ? suggestions.length - 1 : prev - 1));
+                      return;
+                    }
+                    if (e.key === "Enter" && !e.shiftKey && selectedSuggestionIdx >= 0) {
+                      e.preventDefault();
+                      handleSelectSuggestion(suggestions[selectedSuggestionIdx]);
+                      return;
+                    }
+                    if (e.key === "Escape") {
+                      setSuggestions([]);
+                      setShowSuggestions(false);
+                      return;
+                    }
+                  }
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    setSuggestions([]); setShowSuggestions(false);
+                    handleSend();
+                  }
+                }}
+                placeholder={
+                  !canInteract
+                    ? t("You do not have permission to interact with agents.")
+                    : isSending
+                      ? t("Waiting for response...")
+                      : t("Message agents or type @ to mention...")
+                }
+                rows={1}
+                className={`w-full resize-none border-none bg-transparent px-5 py-4 pr-14 text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-0 ${(isSending || !canInteract) ? "cursor-not-allowed opacity-50" : ""}`}
+              />
+              {/* Canvas indicator pill */}
+              {isCanvasEnabled && (
+                <div className="flex items-center px-4 pb-1">
+                  <div className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1 dark:border-red-800 dark:bg-red-950/30">
+                    <Pencil size={12} className="text-red-500" />
+                    <span className="text-xs font-semibold text-red-500">{t("Canvas")}</span>
+                    <button
+                      onClick={() => setIsCanvasEnabled(false)}
+                      className="ml-0.5 rounded-full p-0.5 text-red-400 hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900/50"
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div className="flex items-center justify-between px-3 pb-3">
+                <div className="flex items-center gap-1">
+                  {/* ---- Addon: Plus menu button ---- */}
+                  <div data-plus-menu>
+                    <button
+                      onClick={(e) => {
+                        if (!showPlusMenu) {
+                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                          setPlusMenuPos({ bottom: window.innerHeight - rect.top + 8, left: rect.left });
+                        }
+                        setShowPlusMenu(!showPlusMenu);
+                      }}
+                      disabled={isSending || !canInteract}
+                      className={`flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors ${(isSending || !canInteract) ? "cursor-not-allowed opacity-50" : "hover:bg-accent hover:text-foreground"}`}
+                      title={t("More options")}
+                    >
+                      <Plus size={16} />
+                    </button>
+                  </div>
+
+                  {/* Existing: Upload image button */}
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isSending || !canInteract}
+                    className={`flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors ${(isSending || !canInteract) ? "cursor-not-allowed opacity-50" : "hover:bg-accent hover:text-foreground"}`}
+                    title={t("Upload image")}
+                  >
+                    <ImagePlus size={16} />
+                  </button>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept={ALLOWED_EXTENSIONS.map((e) => `.${e}`).join(",")}
+                  className="hidden"
+                  onChange={handleFileChange}
+                />
+                <div className="flex items-center gap-1">
+                  {/* ---- Addon: Microphone button (Speech-to-Text) ---- */}
+                  <button
+                    onClick={handleMicClick}
+                    disabled={isSending || !canInteract}
+                    className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
+                      isListening
+                        ? "bg-red-500 text-white animate-pulse"
+                        : (isSending || !canInteract)
+                          ? "cursor-not-allowed text-muted-foreground opacity-50"
+                          : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                    }`}
+                    title={isListening ? t("Stop listening") : t("Voice input")}
+                  >
+                    {isListening ? <AudioLines size={16} /> : <Mic size={16} />}
+                  </button>
+                  {/* Existing: Send button */}
+                  <button
+                    onClick={handleSend}
+                    disabled={(!input.trim() && !uploadFiles.some((f) => f.path)) || isSending || !canInteract}
+                    className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
+                      (input.trim() || uploadFiles.some((f) => f.path)) && !isSending && canInteract
+                        ? "bg-foreground text-background hover:opacity-90"
+                        : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    <Send size={16} className="-ml-px -mt-px" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-2 text-center text-xs text-muted-foreground">
+              {t("Agents can make mistakes. Review important info.")}
+            </div>
+          </div>
+        </div>
+      </div>
+      )}
+      {/* ---- Addon: SharePoint File Picker (MSAL-based) ---- */}
+      <SharePointFilePicker
+        isOpen={spPickerOpen}
+        onDismiss={() => setSpPickerOpen(false)}
+        onFilesSelected={handleSpFilesSelected}
+      />
+      {/* ---- Addon: Outlook Connector ---- */}
+      <OutlookConnector
+        isOpen={outlookDialogOpen}
+        onDismiss={() => setOutlookDialogOpen(false)}
+        onConnected={() => {
+          setOutlookConnected(true);
+        }}
+        onDisconnected={() => {
+          setOutlookConnected(false);
+          refreshOutlookStatus();
+        }}
+      />
+      {false && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50">
+          <div className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl border border-border bg-popover shadow-2xl">
+            {/* Modal header */}
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <div className="flex items-center gap-3">
+                {!spShowConsent && spFolderStack.length > 0 && (
+                  <button
+                    onClick={spGoBack}
+                    className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    <ArrowLeft size={18} />
+                  </button>
+                )}
+                <div>
+                  <h2 className="text-base font-semibold text-foreground">
+                    {spShowConsent ? t("Connect to SharePoint") : t("SharePoint Files")}
+                  </h2>
+                  {!spShowConsent && spFolderStack.length > 0 && (
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <span>{t("OneDrive")}</span>
+                      {spFolderStack.map((f) => (
+                        <span key={f.id}>
+                          <span className="mx-0.5">/</span>
+                          <span>{f.name}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => { setSpModalOpen(false); setSpShowConsent(false); }}
+                className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {spShowConsent ? (
+              <div className="flex flex-1 flex-col px-6 py-6">
+                <div className="mb-5 flex items-center gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/30">
+                    <Shield size={24} className="text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">{t("Permissions Required")}</h3>
+                    <p className="text-xs text-muted-foreground">{t("This app needs access to your Microsoft account")}</p>
+                  </div>
+                </div>
+
+                <p className="mb-4 text-sm text-muted-foreground">
+                  {t("To browse and upload files from SharePoint, the following permissions are required:")}
+                </p>
+
+                <div className="mb-6 flex flex-col gap-3">
+                  <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3">
+                    <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-green-500" />
+                    <div>
+                      <div className="text-sm font-medium text-foreground">{t("Read your profile")}</div>
+                      <div className="text-xs text-muted-foreground">{t("View your basic account information")}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3">
+                    <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-green-500" />
+                    <div>
+                      <div className="text-sm font-medium text-foreground">{t("Access your files")}</div>
+                      <div className="text-xs text-muted-foreground">{t("Read files from your OneDrive and SharePoint")}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3">
+                    <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-green-500" />
+                    <div>
+                      <div className="text-sm font-medium text-foreground">{t("Access SharePoint sites")}</div>
+                      <div className="text-xs text-muted-foreground">{t("Browse SharePoint sites you have access to")}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {spError && (
+                  <div className="mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-700 dark:bg-red-950/30 dark:text-red-300">
+                    {spError}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => { setSpModalOpen(false); setSpShowConsent(false); }}
+                    className="flex-1 rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-foreground hover:bg-accent"
+                  >
+                    {t("Cancel")}
+                  </button>
+                  <button
+                    onClick={handleSharePointConsent}
+                    disabled={spLoading}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {spLoading ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        {t("Connecting...")}
+                      </>
+                    ) : (
+                      t("Allow & Connect")
+                    )}
+                  </button>
+                </div>
+
+                <p className="mt-4 text-center text-xs text-muted-foreground">
+                  {t("You will be redirected to Microsoft to sign in and grant access.")}
+                </p>
+              </div>
+            ) : (
+            <div className="flex-1 overflow-y-auto px-2 py-2" style={{ scrollbarWidth: "thin" }}>
+              {spError && (
+                <div className="mx-3 mb-3 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-700 dark:bg-red-950/30 dark:text-red-300">
+                  {spError}
+                  {!spAccessToken && (
+                    <button
+                      onClick={handleSharePointAuth}
+                      className="ml-2 font-medium underline"
+                    >
+                      {t("Try again")}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {spLoading && (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 size={24} className="animate-spin text-muted-foreground" />
+                  <span className="ml-3 text-sm text-muted-foreground">{t("Loading...")}</span>
+                </div>
+              )}
+
+              {!spLoading && !spError && spItems.length === 0 && spAccessToken && (
+                <div className="py-12 text-center text-sm text-muted-foreground">
+                  {t("No files found in this location")}
+                </div>
+              )}
+
+              {!spLoading && spItems.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    if (item.type === "folder") {
+                      spOpenFolder(item);
+                    } else {
+                      spSelectFile(item);
+                    }
+                  }}
+                  className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left text-sm text-foreground hover:bg-accent"
+                >
+                  {item.type === "folder" ? (
+                    <Folder size={20} className="shrink-0 text-blue-500" />
+                  ) : (
+                    <File size={20} className="shrink-0 text-muted-foreground" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">{item.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {item.type === "folder"
+                        ? `${item.childCount ?? 0} items`
+                        : item.size
+                          ? `${(item.size / 1024).toFixed(1)} KB`
+                          : ""}
+                    </div>
+                  </div>
+                  {item.type === "folder" && (
+                    <ChevronRight size={16} className="shrink-0 text-muted-foreground" />
+                  )}
+                </button>
+              ))}
+            </div>
+            )}
+
+            {/* Modal footer */}
+            <div className="border-t border-border px-5 py-3 text-xs text-muted-foreground">
+              {!spShowConsent && spAccessToken
+                ? t("Click a file to attach it, or open a folder to browse")
+                : t("Authenticate with your Microsoft account to browse files")}
+            </div>
           </div>
         </div>
       )}
-
-      {/* ── Section Stack ── */}
-      <div className="flex-1 overflow-auto bg-background px-4 py-3 sm:px-6 md:px-8 md:py-4">
-        <div className="space-y-4">
-          {sectionsToRender.map((section, i) => {
-            const { kpis, charts } = resolveSection(section);
-            return (
-              <SectionCard
-                key={section.id}
-                section={section}
-                displayKpis={kpis}
-                charts={charts}
-                approvalRangeSelector={section.id === "approval" ? approvalRangeSelector : undefined}
-                hitlRangeSelector={section.id === "hitl" ? hitlRangeSelector : undefined}
-                costRangeSelector={section.id === "cost" ? costRangeSelector : undefined}
-                defaultExpanded={i === 0}
-              />
-            );
-          })}
-        </div>
-      </div>
     </div>
   );
 }
