@@ -42,6 +42,9 @@ import nanoBananaLogo from "@/assets/nano_banana_logo.png";
 import dalleLogo from "@/assets/dalle_logo.svg";
 import googleLogo from "@/assets/google_logo.svg";
 import defaultLlmLogo from "@/assets/default_llm_logo.png";
+import notebookLMLogo from "@/assets/notebooklm_logo.svg";
+import translatorLogo from "@/assets/translator_logo.png";
+import imageLibraryLogo from "@/assets/image_library_logo.svg";
 
 /* ------------------ TYPES ------------------ */
 
@@ -1853,14 +1856,14 @@ export default function AgentOrchestrator() {
               onClick={() => window.open("https://translator.motherson.com", "_blank")}
               className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
             >
-              <Globe size={16} className="shrink-0 text-blue-500" />
+              <img src={translatorLogo} alt="" className="h-4 w-4 shrink-0 object-contain" />
               <span>{t("AI Translator")}</span>
             </button>
             <button
               onClick={() => window.open("https://genai.motherson.com/do33", "_blank")}
               className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent"
             >
-              <Image size={16} className="shrink-0 text-green-500" />
+              <img src={imageLibraryLogo} alt="" className="h-4 w-4 shrink-0 object-contain" />
               <span>{t("DO33")}</span>
             </button>
             <button
@@ -1870,7 +1873,7 @@ export default function AgentOrchestrator() {
               }}
               className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground hover:bg-accent ${showNotebookLM ? "bg-accent" : ""}`}
             >
-              <Headphones size={16} className="shrink-0 text-red-500" />
+              <img src={notebookLMLogo} alt="" className="h-4 w-4 shrink-0 object-contain" />
               <span>{t("NotebookLM")}</span>
             </button>
           </div>
